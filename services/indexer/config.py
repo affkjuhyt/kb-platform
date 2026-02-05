@@ -10,10 +10,14 @@ class Settings(BaseSettings):
     postgres_dsn: str = "postgresql://rag:rag@localhost:5432/rag"
 
     qdrant_url: str = "http://localhost:6333"
+    qdrant_grpc_port: int = 6334
     qdrant_collection: str = "rag_chunks"
     embedding_dim: int = 384
     embedding_backend: str = "sentence-transformers"
     embedding_model: str = "intfloat/multilingual-e5-base"
+
+    embedding_batch_size: int = 32
+    embedding_num_workers: int = 4
 
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "rag_chunks"

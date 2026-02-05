@@ -611,3 +611,194 @@ def get_extraction_stats(
     stats = storage_service.get_extraction_stats(tenant_id, days)
 
     return stats
+
+
+# ============================================================================
+# Enhanced Search Endpoints (HyDE, Query Decomposition, Advanced Caching)
+# ============================================================================
+
+
+class EnhancedSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    tenant_id: Optional[str] = None
+    top_k: Optional[int] = None
+    use_hyde: Optional[bool] = None
+    use_decomposition: Optional[bool] = None
+    use_cache: Optional[bool] = None
+
+
+class EnhancedSearchResponse(BaseModel):
+    query: str
+    results: list
+    total: int
+    time_ms: int
+    cached: bool
+    hyde_used: bool
+    decomposition_used: bool
+    hyde_answer: Optional[str] = None
+    sub_queries: Optional[list] = None
+
+
+@app.post("/search/enhanced", response_model=EnhancedSearchResponse)
+async def enhanced_search(payload: EnhancedSearchRequest):
+    """Perform enhanced search with HyDE and query decomposition."""
+    from enhanced_search import get_enhanced_search_engine
+
+    engine = await get_enhanced_search_engine()
+
+    result = await engine.search(
+        query=payload.query,
+        tenant_id=payload.tenant_id,
+        top_k=payload.top_k or settings.top_k,
+        use_cache=payload.use_cache,
+        use_hyde=payload.use_hyde,
+        use_decomposition=payload.use_decomposition,
+    )
+
+    return EnhancedSearchResponse(**result)
+
+
+class HyDESearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    tenant_id: Optional[str] = None
+    top_k: Optional[int] = None
+
+
+@app.post("/search/hyde")
+async def hyde_search(payload: HyDESearchRequest):
+    """Search using HyDE (Hypothetical Document Embeddings)."""
+    from hyde import HyDESearchEngine, HyDEGenerator, HyDEEmbedder
+    from embedding import embedder_factory
+    from qdrant_store import QdrantStore
+    from opensearch_store import OpenSearchStore
+
+    qdrant = QdrantStore()
+    opensearch = OpenSearchStore()
+    embedder = embedder_factory()
+
+    hyde_generator = HyDEGenerator()
+    hyde_embedder = HyDEEmbedder(embedder)
+
+    engine = HyDESearchEngine(
+        hyde_generator=hyde_generator,
+        hyde_embedder=hyde_embedder,
+        qdrant_store=qdrant,
+        opensearch_store=opensearch,
+    )
+
+    results, hyde_doc = await engine.search(
+        query=payload.query,
+        tenant_id=payload.tenant_id,
+        top_k=payload.top_k or settings.top_k,
+        use_hyde=True,
+    )
+
+    return {
+        "query": payload.query,
+        "hyde_answer": hyde_doc.hypothetical_answer if hyde_doc else None,
+        "results": results,
+        "hyde_used": True,
+    }
+
+
+class DecomposeRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+
+
+class DecomposeResponse(BaseModel):
+    original_query: str
+    sub_queries: list
+    strategy: str
+
+
+@app.post("/query/decompose", response_model=DecomposeResponse)
+async def decompose_query(payload: DecomposeRequest):
+    """Decompose a complex query into simpler sub-queries."""
+    from query_decomposition import QueryDecomposer
+
+    decomposer = QueryDecomposer()
+    result = await decomposer.decompose(payload.query)
+
+    return DecomposeResponse(
+        original_query=result.original_query,
+        sub_queries=[
+            {
+                "id": sq.id,
+                "query": sq.query,
+                "intent": sq.intent,
+                "keywords": sq.keywords,
+                "is_primary": sq.is_primary,
+            }
+            for sq in result.sub_queries
+        ],
+        strategy=result.strategy.value,
+    )
+
+
+@app.get("/cache/query/stats")
+async def query_cache_stats():
+    """Get query cache statistics."""
+    from enhanced_search import get_query_cache
+
+    cache = await get_query_cache()
+    return cache.get_stats()
+
+
+@app.post("/cache/query/warm")
+async def warm_cache(queries: list):
+    """Warm the query cache with common queries."""
+    from enhanced_search import get_enhanced_search_engine
+
+    engine = await get_enhanced_search_engine()
+    await engine.warm_cache(queries)
+
+    return {"message": f"Warmed cache with {len(queries)} queries"}
+
+
+@app.post("/cache/query/invalidate")
+async def invalidate_query_cache(tenant_id: str = None):
+    """Invalidate query cache for a tenant or all."""
+    from enhanced_search import get_query_cache
+
+    cache = await get_query_cache()
+
+    if tenant_id:
+        await cache.invalidate_tenant(tenant_id)
+        return {"message": f"Invalidated cache for tenant: {tenant_id}"}
+
+    await cache.clear_all()
+    return {"message": "Invalidated all query cache"}
+
+
+@app.get("/features")
+def list_features():
+    """List available search features and their status."""
+    return {
+        "features": {
+            "basic_search": True,
+            "hybrid_search": True,
+            "rag_query": True,
+            "structured_extraction": True,
+            "caching": {
+                "enabled": settings.cache_enabled,
+                "l1_cache": True,
+                "l2_redis": True,
+            },
+            "hyde": {
+                "enabled": settings.hyde_enabled,
+                "description": "Hypothetical Document Embeddings for improved recall",
+            },
+            "query_decomposition": {
+                "enabled": settings.query_decomposition_enabled,
+                "description": "Break complex queries into sub-queries",
+            },
+            "streaming": False,
+            "multi_llm": True,
+        },
+        "settings": {
+            "hyde_enabled": settings.hyde_enabled,
+            "query_decomposition_enabled": settings.query_decomposition_enabled,
+            "cache_enabled": settings.cache_enabled,
+            "query_cache_ttl": settings.query_cache_ttl,
+        },
+    }
