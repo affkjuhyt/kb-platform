@@ -1,26 +1,29 @@
 """
-Enhanced LLM Gateway with extraction and structured output support.
+Enhanced LLM Gateway with multi-provider support and streaming.
+Supports: Ollama, OpenAI, Anthropic
 """
 
 from datetime import datetime, UTC
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 import json
 import re
 import logging
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import settings
+from config import settings, get_model_for_provider
 
 logger = logging.getLogger("llm_gateway")
 
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
-    max_tokens: int = 512
+    max_tokens: int = 1024
     temperature: float = 0.2
+    system_prompt: Optional[str] = None
 
 
 class GenerateResponse(BaseModel):
@@ -29,18 +32,21 @@ class GenerateResponse(BaseModel):
     backend: str
 
 
-class ExtractRequest(BaseModel):
-    """Request for structured data extraction."""
+class StreamRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    max_tokens: int = 1024
+    temperature: float = 0.2
+    system_prompt: Optional[str] = None
 
+
+class ExtractRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     schema: Dict[str, Any] = Field(..., description="JSON schema for expected output")
     max_tokens: int = 1024
-    temperature: float = 0.1  # Lower temp for more deterministic extraction
+    temperature: float = 0.1
 
 
 class ExtractResponse(BaseModel):
-    """Response from structured extraction."""
-
     data: Optional[Dict[str, Any]]
     raw_text: str
     confidence: float
@@ -50,19 +56,13 @@ class ExtractResponse(BaseModel):
 
 
 class RAGQueryRequest(BaseModel):
-    """Request for RAG-based question answering."""
-
     query: str = Field(..., min_length=1)
-    context: str = Field(
-        ..., min_length=1, description="Retrieved context with citations"
-    )
+    context: str = Field(..., description="Retrieved context with citations")
     max_tokens: int = 1024
     temperature: float = 0.3
 
 
 class RAGQueryResponse(BaseModel):
-    """Response from RAG query."""
-
     answer: str
     citations: List[str]
     confidence: float
@@ -70,11 +70,16 @@ class RAGQueryResponse(BaseModel):
     backend: str
 
 
+class ModelInfo(BaseModel):
+    name: str
+    provider: str
+    capabilities: List[str]
+
+
 app = FastAPI(title="LLM Gateway")
 
 
 def _mock_generate(prompt: str) -> str:
-    """Mock generation for testing."""
     return "[MOCK] " + prompt[:400]
 
 
@@ -84,11 +89,9 @@ def _ollama_generate(
     temperature: float,
     system_prompt: Optional[str] = None,
 ) -> str:
-    """Generate text using Ollama backend."""
     url = f"{settings.ollama_host}/api/generate"
-
     payload = {
-        "model": settings.model,
+        "model": settings.ollama_model,
         "prompt": prompt,
         "stream": False,
         "options": {
@@ -96,7 +99,6 @@ def _ollama_generate(
             "num_predict": max_tokens,
         },
     }
-
     if system_prompt:
         payload["system"] = system_prompt
 
@@ -110,9 +112,240 @@ def _ollama_generate(
         raise HTTPException(status_code=502, detail=f"LLM backend error: {exc}")
 
 
+async def _ollama_stream(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    system_prompt: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    url = f"{settings.ollama_host}/api/generate"
+    payload = {
+        "model": settings.ollama_model,
+        "prompt": prompt,
+        "stream": True,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+        },
+    }
+    if system_prompt:
+        payload["system"] = system_prompt
+
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST", url, json=payload, timeout=120
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line:
+                        data = json.loads(line)
+                        if "response" in data:
+                            yield data["response"]
+    except Exception as exc:
+        logger.error(f"Ollama streaming failed: {exc}")
+        yield f"[ERROR: {exc}]"
+
+
+def _openai_generate(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    system_prompt: Optional[str] = None,
+) -> str:
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="OpenAI API key not configured")
+
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        resp = httpx.post(
+            f"{settings.openai_base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception as exc:
+        logger.error(f"OpenAI generation failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"OpenAI error: {exc}")
+
+
+async def _openai_stream(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    system_prompt: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="OpenAI API key not configured")
+
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{settings.openai_base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line and line.startswith("data: "):
+                        data = line[6:]
+                        if data != "[DONE]":
+                            chunk = json.loads(data)
+                            if "choices" in chunk:
+                                delta = chunk["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+    except Exception as exc:
+        logger.error(f"OpenAI streaming failed: {exc}")
+        yield f"[ERROR: {exc}]"
+
+
+def _anthropic_generate(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    system_prompt: Optional[str] = None,
+) -> str:
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=400, detail="Anthropic API key not configured")
+
+    headers = {
+        "x-api-key": settings.anthropic_api_key,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    messages = [{"role": "user", "content": prompt}]
+
+    payload = {
+        "model": settings.anthropic_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if system_prompt:
+        payload["system"] = system_prompt
+
+    try:
+        resp = httpx.post(
+            f"{settings.anthropic_base_url}/v1/messages",
+            json=payload,
+            headers=headers,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"]
+    except Exception as exc:
+        logger.error(f"Anthropic generation failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Anthropic error: {exc}")
+
+
+async def _anthropic_stream(
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    system_prompt: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=400, detail="Anthropic API key not configured")
+
+    headers = {
+        "x-api-key": settings.anthropic_api_key,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    messages = [{"role": "user", "content": prompt}]
+
+    payload = {
+        "model": settings.anthropic_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    if system_prompt:
+        payload["system"] = system_prompt
+
+    try:
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{settings.anthropic_base_url}/v1/messages",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        if chunk.get("type") == "content_block_delta":
+                            delta = chunk.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                text = delta.get("text", "")
+                                if text:
+                                    yield text
+    except Exception as exc:
+        logger.error(f"Anthropic streaming failed: {exc}")
+        yield f"[ERROR: {exc}]"
+
+
+def _get_generator(provider: str):
+    """Get the appropriate generator function for the provider."""
+    generators = {
+        "ollama": _ollama_generate,
+        "openai": _openai_generate,
+        "anthropic": _anthropic_generate,
+    }
+    return generators.get(provider, _ollama_generate)
+
+
+def _get_streamer(provider: str):
+    """Get the appropriate streamer function for the provider."""
+    streamers = {
+        "ollama": _ollama_stream,
+        "openai": _openai_stream,
+        "anthropic": _anthropic_stream,
+    }
+    return streamers.get(provider, _ollama_stream)
+
+
 def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON object from text, handling various formats."""
-    # Try to find JSON between code blocks
     code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
     matches = re.findall(code_block_pattern, text)
 
@@ -122,7 +355,6 @@ def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             continue
 
-    # Try to find JSON between curly braces
     json_pattern = r"\{[\s\S]*\}"
     matches = re.findall(json_pattern, text)
 
@@ -132,7 +364,6 @@ def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             continue
 
-    # Try the whole text
     try:
         return json.loads(text.strip())
     except json.JSONDecodeError:
@@ -142,7 +373,6 @@ def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _validate_against_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> List[str]:
-    """Validate extracted data against JSON schema."""
     errors = []
 
     if schema.get("type") != "object":
@@ -151,14 +381,12 @@ def _validate_against_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> Li
     properties = schema.get("properties", {})
     required = schema.get("required", [])
 
-    # Check required fields
     for field in required:
         if field not in data:
             errors.append(f"Missing required field: {field}")
         elif data[field] is None:
             errors.append(f"Required field is null: {field}")
 
-    # Check types
     for field, value in data.items():
         if field in properties:
             prop_schema = properties[field]
@@ -177,7 +405,6 @@ def _validate_against_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> Li
             elif expected_type == "object" and not isinstance(value, dict):
                 errors.append(f"Field '{field}' should be an object")
 
-            # Check enum
             if "enum" in prop_schema and value not in prop_schema["enum"]:
                 errors.append(
                     f"Field '{field}' value '{value}' not in enum {prop_schema['enum']}"
@@ -189,19 +416,16 @@ def _validate_against_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> Li
 def _calculate_confidence(
     data: Optional[Dict[str, Any]], schema: Dict[str, Any], validation_errors: List[str]
 ) -> float:
-    """Calculate confidence score for extraction."""
     if data is None:
         return 0.0
 
     if validation_errors:
-        # Calculate based on errors vs total fields
         total_fields = len(schema.get("properties", {}))
         if total_fields == 0:
             return 0.5
         error_weight = len(validation_errors) / total_fields
         return max(0.0, 1.0 - error_weight * 0.5)
 
-    # Check completeness
     required = schema.get("required", [])
     if required:
         filled_required = sum(1 for field in required if data.get(field) is not None)
@@ -209,19 +433,15 @@ def _calculate_confidence(
     else:
         completeness = 1.0
 
-    # Base confidence on completeness
     confidence = 0.7 + (completeness * 0.3)
-
     return min(1.0, confidence)
 
 
 def _extract_citations(text: str) -> List[str]:
-    """Extract citation references from generated text."""
-    # Pattern to match [doc_id] or [Document X] citations
     patterns = [
-        r"\[([^\]]+:[^\]]+)\]",  # [doc_id:chunk_index]
-        r"\[Document (\d+)\]",  # [Document 1]
-        r"\[([^\]]+)\]",  # [any citation]
+        r"\[([^\]]+:[^\]]+)\]",
+        r"\[Document (\d+)\]",
+        r"\[([^\]]+)\]",
     ]
 
     citations = set()
@@ -234,36 +454,116 @@ def _extract_citations(text: str) -> List[str]:
 
 @app.get("/healthz")
 def healthz():
-    """Health check endpoint."""
+    model = get_model_for_provider(settings.llm_provider)
     return {
         "status": "ok",
         "time": datetime.now(UTC).isoformat(),
-        "model": settings.model,
+        "model": model,
         "backend": settings.llm_backend,
+        "provider": settings.llm_provider,
     }
+
+
+@app.get("/models")
+def list_models():
+    provider = settings.llm_provider
+    model = get_model_for_provider(provider)
+
+    if provider == "openai":
+        return {
+            "provider": "openai",
+            "model": model,
+            "capabilities": ["generate", "extract", "rag", "stream"],
+        }
+    elif provider == "anthropic":
+        return {
+            "provider": "anthropic",
+            "model": model,
+            "capabilities": ["generate", "extract", "rag", "stream"],
+        }
+    elif provider == "ollama":
+        try:
+            resp = httpx.get(f"{settings.ollama_host}/api/tags", timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "provider": "ollama",
+                "models": [m["name"] for m in data.get("models", [])],
+                "current": settings.ollama_model,
+                "capabilities": ["generate", "extract", "rag", "stream"],
+            }
+        except Exception:
+            return {
+                "provider": "ollama",
+                "model": settings.ollama_model,
+                "capabilities": ["generate", "extract", "rag", "stream"],
+            }
+
+    return {"error": "Unknown provider"}
 
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(payload: GenerateRequest):
-    """Generate text from prompt."""
-    if settings.llm_backend == "mock":
-        text = _mock_generate(payload.prompt)
-    else:
-        text = _ollama_generate(payload.prompt, payload.max_tokens, payload.temperature)
+    provider = settings.llm_provider
 
-    return GenerateResponse(
-        text=text, model=settings.model, backend=settings.llm_backend
-    )
+    if provider == "mock":
+        text = _mock_generate(payload.prompt)
+    elif provider == "ollama":
+        text = _ollama_generate(
+            payload.prompt,
+            payload.max_tokens,
+            payload.temperature,
+            payload.system_prompt,
+        )
+    elif provider == "openai":
+        text = _openai_generate(
+            payload.prompt,
+            payload.max_tokens,
+            payload.temperature,
+            payload.system_prompt,
+        )
+    elif provider == "anthropic":
+        text = _anthropic_generate(
+            payload.prompt,
+            payload.max_tokens,
+            payload.temperature,
+            payload.system_prompt,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
+
+    model = get_model_for_provider(provider)
+    return GenerateResponse(text=text, model=model, backend=provider)
+
+
+@app.post("/generate/stream")
+async def generate_stream(payload: StreamRequest):
+    """
+    Streaming text generation endpoint.
+    Returns Server-Sent Events (SSE) with generated text chunks.
+    """
+    provider = settings.llm_provider
+
+    async def stream_generator():
+        if provider == "mock":
+            yield f"data: {json.dumps({'chunk': payload.prompt[:50]})}\n\n"
+            yield "data: [DONE]\n\n"
+        else:
+            streamer = _get_streamer(provider)
+            async for chunk in streamer(
+                payload.prompt,
+                payload.max_tokens,
+                payload.temperature,
+                payload.system_prompt,
+            ):
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 @app.post("/extract", response_model=ExtractResponse)
 def extract(payload: ExtractRequest):
-    """
-    Extract structured data from prompt using JSON schema.
-
-    Uses structured prompting to ensure JSON output.
-    """
-    # Build extraction-specific system prompt
     system_prompt = """You are a precise data extraction AI. Your task is to extract structured information and return it as valid JSON.
 Rules:
 1. Return ONLY valid JSON, no markdown formatting, no explanations
@@ -272,7 +572,6 @@ Rules:
 4. Do not include any text outside the JSON object
 5. Ensure proper JSON syntax with double quotes"""
 
-    # Enhance prompt with schema info
     enhanced_prompt = f"""{payload.prompt}
 
 You must return a JSON object matching this schema:
@@ -280,58 +579,57 @@ You must return a JSON object matching this schema:
 
 Remember: Return ONLY the JSON object, nothing else."""
 
-    # Generate
-    if settings.llm_backend == "mock":
-        raw_text = _mock_generate(enhanced_prompt)
-        # Mock extraction for testing
-        if "person" in payload.prompt.lower():
-            raw_text = '{"name": "John Doe", "age": 30, "email": "john@example.com"}'
-        else:
-            raw_text = '{"extracted": "mock data"}'
-    else:
+    provider = settings.llm_provider
+
+    if provider == "mock":
+        raw_text = '{"extracted": "mock data"}'
+    elif provider == "ollama":
         raw_text = _ollama_generate(
             enhanced_prompt,
             payload.max_tokens,
             payload.temperature,
             system_prompt=system_prompt,
         )
+    elif provider == "openai":
+        raw_text = _openai_generate(
+            enhanced_prompt,
+            payload.max_tokens,
+            payload.temperature,
+            system_prompt=system_prompt,
+        )
+    elif provider == "anthropic":
+        raw_text = _anthropic_generate(
+            enhanced_prompt,
+            payload.max_tokens,
+            payload.temperature,
+            system_prompt=system_prompt,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
-    # Extract JSON
     data = _extract_json_from_text(raw_text)
 
-    # Validate
     validation_errors = []
     if data is not None:
         validation_errors = _validate_against_schema(data, payload.schema)
     else:
         validation_errors = ["Failed to parse JSON from response"]
 
-    # Calculate confidence
     confidence = _calculate_confidence(data, payload.schema, validation_errors)
 
-    logger.info(
-        f"Extraction completed: confidence={confidence:.2f}, "
-        f"errors={len(validation_errors)}, has_data={data is not None}"
-    )
-
+    model = get_model_for_provider(provider)
     return ExtractResponse(
         data=data,
         raw_text=raw_text,
         confidence=confidence,
         validation_errors=validation_errors,
-        model=settings.model,
-        backend=settings.llm_backend,
+        model=model,
+        backend=provider,
     )
 
 
 @app.post("/rag", response_model=RAGQueryResponse)
 def rag_query(payload: RAGQueryRequest):
-    """
-    Answer a query using RAG context.
-
-    The context should include retrieved documents with citations.
-    """
-    # Build RAG system prompt
     system_prompt = """You are a helpful RAG assistant. Answer the user's question using ONLY the provided context.
 Rules:
 1. Use only information from the provided context
@@ -339,7 +637,6 @@ Rules:
 3. Be concise and accurate
 4. If the answer isn't in the context, say so clearly"""
 
-    # Build the prompt
     prompt = f"""Context:
 {payload.context}
 
@@ -347,12 +644,13 @@ Question: {payload.query}
 
 Provide a clear, accurate answer based on the context above. Cite sources using [doc_id] format."""
 
-    # Generate answer
-    if settings.llm_backend == "mock":
+    provider = settings.llm_provider
+
+    if provider == "mock":
         answer = f"[MOCK] Based on the provided context, here's the answer to: {payload.query[:50]}..."
         citations = ["doc001", "doc002"]
         confidence = 0.85
-    else:
+    elif provider == "ollama":
         answer = _ollama_generate(
             prompt,
             payload.max_tokens,
@@ -361,41 +659,75 @@ Provide a clear, accurate answer based on the context above. Cite sources using 
         )
         citations = _extract_citations(answer)
         confidence = 0.75 if citations else 0.5
+    elif provider == "openai":
+        answer = _openai_generate(
+            prompt,
+            payload.max_tokens,
+            payload.temperature,
+            system_prompt=system_prompt,
+        )
+        citations = _extract_citations(answer)
+        confidence = 0.8 if citations else 0.5
+    elif provider == "anthropic":
+        answer = _anthropic_generate(
+            prompt,
+            payload.max_tokens,
+            payload.temperature,
+            system_prompt=system_prompt,
+        )
+        citations = _extract_citations(answer)
+        confidence = 0.85 if citations else 0.5
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
+    model = get_model_for_provider(provider)
     return RAGQueryResponse(
         answer=answer,
         citations=citations,
         confidence=confidence,
-        model=settings.model,
-        backend=settings.llm_backend,
+        model=model,
+        backend=provider,
     )
 
 
-@app.get("/models")
-def list_models():
-    """List available models (Ollama specific)."""
-    if settings.llm_backend == "mock":
-        return {
-            "models": ["mock-model"],
-            "current": settings.model,
-        }
+@app.post("/rag/stream")
+async def rag_stream(payload: RAGQueryRequest):
+    """
+    Streaming RAG query endpoint.
+    Returns Server-Sent Events (SSE) with generated answer chunks.
+    """
+    system_prompt = """You are a helpful RAG assistant. Answer the user's question using ONLY the provided context.
+Rules:
+1. Use only information from the provided context
+2. Cite sources using [doc_id] format
+3. Be concise and accurate
+4. If the answer isn't in the context, say so clearly"""
 
-    try:
-        url = f"{settings.ollama_host}/api/tags"
-        resp = httpx.get(url, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "models": [m["name"] for m in data.get("models", [])],
-            "current": settings.model,
-        }
-    except Exception as exc:
-        logger.error(f"Failed to list models: {exc}")
-        return {
-            "models": [],
-            "current": settings.model,
-            "error": str(exc),
-        }
+    prompt = f"""Context:
+{payload.context}
+
+Question: {payload.query}
+
+Provide a clear, accurate answer based on the context above. Cite sources using [doc_id] format."""
+
+    provider = settings.llm_provider
+
+    async def rag_stream_generator():
+        if provider == "mock":
+            yield f"data: {json.dumps({'chunk': 'Based on the context...'})}\n\n"
+            yield "data: [DONE]\n\n"
+        else:
+            streamer = _get_streamer(provider)
+            async for chunk in streamer(
+                prompt,
+                payload.max_tokens,
+                payload.temperature,
+                system_prompt=system_prompt,
+            ):
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(rag_stream_generator(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":
