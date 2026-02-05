@@ -1,0 +1,113 @@
+# Alert rules for RAG System
+groups:
+  - name: rag-system-alerts
+    interval: 30s
+    rules:
+      # High latency alert
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2.1
+        for: 2m
+        labels:
+          severity: warning
+          service: '{{ $labels.service }}'
+        annotations:
+          summary: 'High latency detected'
+          description: 'p95 latency is {{ $value }}s for {{ $labels.method }} {{ $labels.endpoint }}'
+
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status_code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          service: '{{ $labels.service }}'
+        annotations:
+          summary: 'High error rate'
+          description: 'Error rate is {{ $value | humanizePercentage }} for {{ $labels.endpoint }}'
+
+      # Service down alert
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: '{{ $labels.job }}'
+        annotations:
+          summary: 'Service is down'
+          description: 'Service {{ $labels.job }} has been down for more than 1 minute'
+
+      # High memory usage alert
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes / 1024 / 1024) > 2048
+        for: 5m
+        labels:
+          severity: warning
+          service: '{{ $labels.job }}'
+        annotations:
+          summary: 'High memory usage'
+          description: 'Memory usage is {{ $value }}MB for {{ $labels.job }}'
+
+      # Cache hit rate low alert
+      - alert: LowCacheHitRate
+        expr: (cache_hits_total / (cache_hits_total + cache_misses_total)) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: 'cache'
+        annotations:
+          summary: 'Low cache hit rate'
+          description: 'Cache hit rate is {{ $value | humanizePercentage }}'
+
+      # Rate limiting triggered frequently
+      - alert: FrequentRateLimiting
+        expr: rate(rate_limit_hits_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: info
+          service: 'api-gateway'
+        annotations:
+          summary: 'Frequent rate limiting'
+          description: 'Rate limiting is being triggered frequently for tenant {{ $labels.tenant_id }}'
+
+      # Database connection pool exhausted
+      - alert: DBConnectionsHigh
+        expr: db_connections_active > 80
+        for: 2m
+        labels:
+          severity: warning
+          service: 'database'
+        annotations:
+          summary: 'High database connections'
+          description: 'Active DB connections: {{ $value }}'
+
+      # LLM latency high
+      - alert: HighLLMLatency
+        expr: histogram_quantile(0.95, rate(llm_latency_seconds_bucket[5m])) > 10
+        for: 3m
+        labels:
+          severity: warning
+          service: 'llm-gateway'
+        annotations:
+          summary: 'High LLM latency'
+          description: 'LLM p95 latency is {{ $value }}s'
+
+      # Vector DB slow
+      - alert: SlowVectorDB
+        expr: histogram_quantile(0.95, rate(vector_db_latency_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service: 'vector-db'
+        annotations:
+          summary: 'Slow vector DB operations'
+          description: 'Vector DB p95 latency is {{ $value }}s'
+
+      # Disk space low
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Low disk space'
+          description: 'Disk space is below 10% on {{ $labels.device }}'
