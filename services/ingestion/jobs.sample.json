@@ -1,0 +1,9 @@
+[
+  {
+    "tenant_id": "tenant_a",
+    "source": "cron_doc",
+    "source_id": "doc_001",
+    "url": "http://localhost:8002/doc1.txt",
+    "metadata": {"category": "sample"}
+  }
+]

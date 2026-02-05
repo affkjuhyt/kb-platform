@@ -1,0 +1,212 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  opensearch:
+    image: opensearchproject/opensearch:2.14.0
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: "Admin123!Strong"
+      OPENSEARCH_JAVA_OPTS: "-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-06T09-36-42Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  kafka:
+    image: apache/kafka:3.7.0
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+  api-gateway:
+    image: nginx:1.27
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - opensearch
+      - qdrant
+
+  ingestion:
+    build:
+      context: ../../services/ingestion
+      dockerfile: Dockerfile
+    environment:
+      RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
+      RAG_MINIO_ENDPOINT: minio:9000
+      RAG_MINIO_ACCESS_KEY: minio
+      RAG_MINIO_SECRET_KEY: minio123
+      RAG_MINIO_BUCKET: raw-docs
+      RAG_MINIO_SECURE: "false"
+      RAG_KAFKA_BROKERS: kafka:9092
+      RAG_KAFKA_TOPIC: ingestion.events
+    ports:
+      - "8001:8000"
+    depends_on:
+      - postgres
+      - minio
+      - kafka
+
+  indexer:
+    build:
+      context: ../../services/indexer
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
+      RAG_MINIO_ENDPOINT: minio:9000
+      RAG_MINIO_ACCESS_KEY: minio
+      RAG_MINIO_SECRET_KEY: minio123
+      RAG_MINIO_BUCKET: raw-docs
+      RAG_MINIO_SECURE: "false"
+      RAG_KAFKA_BROKERS: kafka:9092
+      RAG_KAFKA_INGESTION_TOPIC: ingestion.events
+      RAG_KAFKA_CHUNK_TOPIC: indexer.chunks
+      RAG_QDRANT_URL: http://qdrant:6333
+      RAG_QDRANT_COLLECTION: rag_chunks
+      RAG_OPENSEARCH_URL: http://opensearch:9200
+      RAG_OPENSEARCH_INDEX: rag_chunks
+    depends_on:
+      - postgres
+      - minio
+      - kafka
+      - qdrant
+      - opensearch
+
+  indexer-consumer:
+    build:
+      context: ../../services/indexer
+      dockerfile: Dockerfile
+    command: ["python", "consumer.py"]
+    environment:
+      RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
+      RAG_MINIO_ENDPOINT: minio:9000
+      RAG_MINIO_ACCESS_KEY: minio
+      RAG_MINIO_SECRET_KEY: minio123
+      RAG_MINIO_BUCKET: raw-docs
+      RAG_MINIO_SECURE: "false"
+      RAG_KAFKA_BROKERS: kafka:9092
+      RAG_KAFKA_INGESTION_TOPIC: ingestion.events
+      RAG_KAFKA_CHUNK_TOPIC: indexer.chunks
+      RAG_QDRANT_URL: http://qdrant:6333
+      RAG_QDRANT_COLLECTION: rag_chunks
+      RAG_OPENSEARCH_URL: http://opensearch:9200
+      RAG_OPENSEARCH_INDEX: rag_chunks
+    depends_on:
+      - postgres
+      - minio
+      - kafka
+      - qdrant
+      - opensearch
+
+  query-api:
+    build:
+      context: ../../services/query-api
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+    environment:
+      RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
+      RAG_QDRANT_URL: http://qdrant:6333
+      RAG_QDRANT_COLLECTION: rag_chunks
+      RAG_OPENSEARCH_URL: http://opensearch:9200
+      RAG_OPENSEARCH_INDEX: rag_chunks
+      RAG_TOP_K: 10
+      RAG_RERANK_BACKEND: service
+      RAG_RERANK_URL: http://rerank:8000
+      RAG_SOURCE_PRIORITY: "manual:10,api:5"
+      HF_HOME: /models/hf
+      TRANSFORMERS_CACHE: /models/hf
+      SENTENCE_TRANSFORMERS_HOME: /models/hf
+    depends_on:
+      - postgres
+      - qdrant
+      - opensearch
+      - rerank
+
+  llm-gateway:
+    build:
+      context: ../../services/llm-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8000"
+    environment:
+      RAG_LLM_BACKEND: ollama
+      RAG_OLLAMA_HOST: http://host.docker.internal:11434
+      RAG_MODEL: llama3.1:8b-instruct
+    volumes:
+      - ../../infra/models/hf:/models/hf
+
+  rerank:
+    build:
+      context: ../../services/rerank
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8000"
+    environment:
+      RAG_MODEL: BAAI/bge-reranker-v2-m3
+      RAG_DEVICE: cpu
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  opensearch_data:
+  minio_data:

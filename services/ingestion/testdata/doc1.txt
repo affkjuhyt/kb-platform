@@ -1,0 +1,1 @@
+This is a sample document for ingestion via cron runner.
