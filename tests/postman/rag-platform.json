@@ -1,0 +1,424 @@
+{
+  "info": {
+    "_postman_id": "rag-platform-e2e",
+    "name": "RAG Platform - E2E Tests",
+    "description": "End-to-end API tests cho RAG Knowledge Base Platform\\n\\nUsage with Newman:\\n  newman run rag-platform.json --env-var \"base_url=http://localhost:8080\"",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Health Checks",
+      "item": [
+        {
+          "name": "Gateway Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ingestion Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ingestion_url}}/healthz",
+              "host": ["{{ingestion_url}}"],
+              "path": ["healthz"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Query API Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{query_url}}/healthz",
+              "host": ["{{query_url}}"],
+              "path": ["healthz"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LLM Gateway Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{llm_url}}/healthz",
+              "host": ["{{llm_url}}"],
+              "path": ["healthz"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Kiểm tra tất cả services đều healthy"
+    },
+    {
+      "name": "2. Document Ingestion",
+      "item": [
+        {
+          "name": "Ingest via Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"# Tài liệu Demo\\n\\nĐây là nội dung test cho hệ thống RAG.\\n\\n## Thông tin quan trọng\\n- Hệ thống hỗ trợ tìm kiếm ngữ nghĩa\\n- Sử dụng vector database và BM25\\n- Multi-tenant architecture\\n\\n## Use cases\\n1. Document search\\n2. Question answering\\n3. Data extraction\",\n  \"metadata\": {\n    \"title\": \"Demo Document\",\n    \"source\": \"postman-test\",\n    \"doc_type\": \"markdown\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/webhook",
+              "host": ["{{ingestion_url}}"],
+              "path": ["webhook"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest via Pull (URL)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/document.html\",\n  \"metadata\": {\n    \"title\": \"Pulled Document\",\n    \"source\": \"url\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{ingestion_url}}/pull",
+              "host": ["{{ingestion_url}}"],
+              "path": ["pull"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Test ingestion pipeline"
+    },
+    {
+      "name": "3. Search & Query",
+      "item": [
+        {
+          "name": "Semantic Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"hệ thống RAG làm gì\",\n  \"top_k\": 5,\n  \"filters\": {\n    \"tenant_id\": \"demo-tenant\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{query_url}}/search",
+              "host": ["{{query_url}}"],
+              "path": ["search"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "RAG Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Hệ thống này có những tính năng gì?\",\n  \"top_k\": 3\n}"
+            },
+            "url": {
+              "raw": "{{query_url}}/rag",
+              "host": ["{{query_url}}"],
+              "path": ["rag"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Citations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chunk_ids\": [\"chunk-001\", \"chunk-002\"]\n}"
+            },
+            "url": {
+              "raw": "{{query_url}}/citations",
+              "host": ["{{query_url}}"],
+              "path": ["citations"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Test search và RAG functionality"
+    },
+    {
+      "name": "4. Data Extraction",
+      "item": [
+        {
+          "name": "Sync Extraction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Trích xuất thông tin công ty\",\n  \"schema\": {\n    \"company_name\": {\n      \"type\": \"string\",\n      \"description\": \"Tên công ty\"\n    },\n    \"founded_year\": {\n      \"type\": \"integer\",\n      \"description\": \"Năm thành lập\"\n    },\n    \"industry\": {\n      \"type\": \"string\",\n      \"enum\": [\"tech\", \"finance\", \"healthcare\", \"other\"]\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{query_url}}/extract",
+              "host": ["{{query_url}}"],
+              "path": ["extract"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Async Extraction Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Phân tích tài liệu dài\",\n  \"schema\": {\n    \"key_points\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"summary\": {\n      \"type\": \"string\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{query_url}}/extract/jobs",
+              "host": ["{{query_url}}"],
+              "path": ["extract", "jobs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Extraction Job Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "url": {
+              "raw": "{{query_url}}/extract/jobs/{{job_id}}",
+              "host": ["{{query_url}}"],
+              "path": ["extract", "jobs", "{{job_id}}"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Test data extraction features"
+    },
+    {
+      "name": "5. LLM Gateway",
+      "item": [
+        {
+          "name": "List Models",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{llm_url}}/models",
+              "host": ["{{llm_url}}"],
+              "path": ["models"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Text",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Giải thích ngắn gọn về RAG\",\n  \"max_tokens\": 200,\n  \"temperature\": 0.7\n}"
+            },
+            "url": {
+              "raw": "{{llm_url}}/generate",
+              "host": ["{{llm_url}}"],
+              "path": ["generate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "RAG Query via LLM",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "demo-tenant"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Hệ thống RAG là gì?\",\n  \"context\": [\n    {\n      \"content\": \"RAG (Retrieval-Augmented Generation) là kỹ thuật kết hợp information retrieval và text generation.\",\n      \"source\": \"doc-001\"\n    },\n    {\n      \"content\": \"RAG giúp cải thiện độ chính xác của LLM bằng cách cung cấp context từ knowledge base.\",\n      \"source\": \"doc-002\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{llm_url}}/rag",
+              "host": ["{{llm_url}}"],
+              "path": ["rag"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Test LLM Gateway endpoints"
+    },
+    {
+      "name": "6. Rerank Service",
+      "item": [
+        {
+          "name": "Rerank Documents",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"machine learning applications\",\n  \"documents\": [\n    {\n      \"id\": \"doc-001\",\n      \"text\": \"Machine learning is used in healthcare for diagnosis.\"\n    },\n    {\n      \"id\": \"doc-002\",\n      \"text\": \"Deep learning improves image recognition significantly.\"\n    },\n    {\n      \"id\": \"doc-003\",\n      \"text\": \"Applications of ML include finance, healthcare, and retail.\"\n    }\n  ],\n  \"top_k\": 2\n}"
+            },
+            "url": {
+              "raw": "{{rerank_url}}/rerank",
+              "host": ["{{rerank_url}}"],
+              "path": ["rerank"]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Test reranking service"
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "API Gateway URL"
+    },
+    {
+      "key": "ingestion_url",
+      "value": "http://localhost:8001",
+      "type": "string",
+      "description": "Ingestion Service URL"
+    },
+    {
+      "key": "indexer_url",
+      "value": "http://localhost:8002",
+      "type": "string",
+      "description": "Indexer Service URL"
+    },
+    {
+      "key": "query_url",
+      "value": "http://localhost:8003",
+      "type": "string",
+      "description": "Query API URL"
+    },
+    {
+      "key": "llm_url",
+      "value": "http://localhost:8004",
+      "type": "string",
+      "description": "LLM Gateway URL"
+    },
+    {
+      "key": "rerank_url",
+      "value": "http://localhost:8005",
+      "type": "string",
+      "description": "Rerank Service URL"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
