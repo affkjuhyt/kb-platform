@@ -1,7 +1,7 @@
 """create extraction and rag tables for phase 6
 
-Revision ID: 0001
-Revises:
+Revision ID: 0002
+Revises: 0001
 Create Date: 2026-02-05
 
 """
@@ -11,16 +11,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0001"
-down_revision = None
+revision = "0002"
+down_revision = "0001"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    # Enable UUID extension
-    op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
-
     # Create extraction_jobs table
     op.create_table(
         "extraction_jobs",

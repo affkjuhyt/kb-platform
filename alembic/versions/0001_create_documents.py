@@ -1,8 +1,9 @@
 """create documents table
 
 Revision ID: 0001
-Revises: 
+Revises:
 Create Date: 2026-02-04
+
 """
 
 from alembic import op
@@ -20,18 +21,40 @@ def upgrade() -> None:
 
     op.create_table(
         "documents",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("uuid_generate_v4()"),
+        ),
         sa.Column("tenant_id", sa.Text(), nullable=False),
         sa.Column("source", sa.Text(), nullable=False),
         sa.Column("source_id", sa.Text(), nullable=False),
         sa.Column("content_hash", sa.Text(), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
-        sa.Column("latest", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column(
+            "latest", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
         sa.Column("raw_object_key", sa.Text(), nullable=False),
         sa.Column("content_type", sa.Text(), nullable=False),
-        sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+        sa.Column(
+            "metadata",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
     )
 
     op.create_index(

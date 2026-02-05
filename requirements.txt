@@ -1,0 +1,44 @@
+# Consolidated Requirements for RAG System
+# This file includes all dependencies from all services
+
+# Web Framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.3
+
+# Data Validation
+pydantic==2.8.2
+pydantic-settings==2.4.0
+
+# Database
+sqlalchemy==2.0.32
+psycopg2-binary==2.9.9
+alembic==1.13.2
+
+# Vector & Search
+qdrant-client==1.10.1
+opensearch-py==2.6.0
+
+# ML/AI
+sentence-transformers==3.0.1
+torch==2.3.1
+
+# Document Processing
+beautifulsoup4==4.12.3
+pypdf==4.3.1
+python-docx==1.1.2
+markdown-it-py==3.0.0
+python-multipart==0.0.22
+
+# Cloud & Message Queue
+boto3==1.34.162
+kafka-python==2.0.2
+
+# HTTP Clients
+httpx==0.27.0
+requests==2.32.3
+
+# Utilities
+six==1.17.0
+
+# Testing
+pytest==8.3.2
