@@ -76,6 +76,10 @@ class RAGClient {
     this.apiKey = apiKey;
     this.timeout = timeout;
     this.tokenInfo = null;
+    // Retry metrics
+    this._retryStats = { transientRetries: 0, totalBackoffMs: 0, lastRetryAt: null };
+    // Store credentials for optional token refresh
+    this._credentials = null;
   }
 
   /**
@@ -85,6 +89,18 @@ class RAGClient {
   async _request(method, endpoint, data = null, requiresAuth = true) {
     const url = `${this.baseUrl}${endpoint}`;
     
+    // Preflight: refresh token if expired before making the request
+    if (requiresAuth && !this.apiKey) {
+      if (!this.tokenInfo || this._isTokenExpired()) {
+        if (this._credentials) {
+          await this._refreshToken();
+        }
+      }
+      if (!this.tokenInfo || this._isTokenExpired()) {
+        throw new AuthenticationError('Not authenticated. Please login.');
+      }
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
@@ -118,27 +134,35 @@ class RAGClient {
           clearTimeout(timeoutId);
 
           // Retry on rate limit
-          if (response.status === 429) {
-            const retryAfter = parseInt(response.headers.get('Retry-After')) || 60;
-            if (attempt < maxRetries) {
-              console.warn(`Retry ${attempt + 1} after 429 for ${method} ${endpoint}, retrying in ${retryAfter}s`);
-              await sleep(retryAfter * 1000);
-              attempt++;
-              continue;
-            }
-            throw new RateLimitError('Rate limit exceeded', retryAfter);
-          }
+      if (response.status === 429) {
+        const retryAfter = parseInt(response.headers.get('Retry-After')) || 60;
+        // update retry metrics
+        this._retryStats.transientRetries += 1;
+        this._retryStats.totalBackoffMs += retryAfter * 1000;
+        this._retryStats.lastRetryAt = Date.now();
+        if (attempt < maxRetries) {
+          console.warn(`Retry ${attempt + 1} after 429 for ${method} ${endpoint}, retrying in ${retryAfter}s`);
+          await sleep(retryAfter * 1000);
+          attempt++;
+          continue;
+        }
+        throw new RateLimitError('Rate limit exceeded', retryAfter);
+      }
 
-          // Retry on server errors
-          if (response.status >= 500 && response.status < 600) {
-            if (attempt < maxRetries) {
-              const backoff = Math.floor((0.5 * Math.pow(2, attempt)) * 1000);
-              console.warn(`Retry ${attempt + 1} after ${response.status} on ${method} ${endpoint}, backoff ${backoff}ms`);
-              await sleep(backoff);
-              attempt++;
-              continue;
-            }
-          }
+      // Retry on server errors
+      if (response.status >= 500 && response.status < 600) {
+        if (attempt < maxRetries) {
+          const backoffMs = Math.max(500, Math.floor((0.5 * Math.pow(2, attempt)) * 1000));
+          console.warn(`Retry ${attempt + 1} after ${response.status} on ${method} ${endpoint}, backoff ${backoffMs}ms`);
+          // update metrics
+          this._retryStats.transientRetries += 1;
+          this._retryStats.totalBackoffMs += backoffMs;
+          this._retryStats.lastRetryAt = Date.now();
+          await sleep(backoffMs);
+          attempt++;
+          continue;
+        }
+      }
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -234,7 +258,7 @@ class RAGClient {
    * @returns {Promise<Object>} Token information
    * @throws {AuthenticationError} If credentials are invalid
    */
-  async login(email, password) {
+  async login(email, password, rememberCredentials = false) {
     try {
       const response = await this._request(
         'POST',
@@ -255,6 +279,10 @@ class RAGClient {
         obtainedAt: Date.now()
       };
 
+      if (rememberCredentials) {
+        this._credentials = { email, password };
+      }
+
       return this.tokenInfo;
 
     } catch (error) {
@@ -263,6 +291,30 @@ class RAGClient {
       }
       throw error;
     }
+  }
+
+  async _refreshToken() {
+    if (!this._credentials) {
+      throw new AuthenticationError('Not authenticated. Please login.');
+    }
+    const { email, password } = this._credentials;
+    const response = await this._request(
+      'POST',
+      '/auth/login',
+      {
+        email,
+        password,
+        tenant_id: this.tenantId
+      },
+      false
+    );
+    this.tokenInfo = {
+      accessToken: response.access_token,
+      tokenType: response.token_type,
+      expiresIn: response.expires_in,
+      tenantId: response.tenant_id,
+      obtainedAt: Date.now()
+    };
   }
 
   /**
@@ -479,6 +531,11 @@ class RAGClient {
    */
   async getCurrentUser() {
     return await this._request('GET', '/auth/me');
+  }
+
+  // Retrieve retry statistics for observability
+  getRetryStats() {
+    return this._retryStats || { transientRetries: 0, totalBackoffMs: 0, lastRetryAt: null };
   }
 }
 

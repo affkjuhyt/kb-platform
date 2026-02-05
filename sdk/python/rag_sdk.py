@@ -39,6 +39,13 @@ import requests
 import time
 import json
 import logging
+import os
+
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None
+import logging.config
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -49,6 +56,23 @@ try:
 except Exception:  # pragma: no cover
     jsonschema = None
 
+
+def _setup_logging():
+    # Try to load YAML config if available, otherwise fall back to basicConfig
+    if yaml is not None:
+        cfg_path = os.path.join(os.path.dirname(__file__), "logging.yaml")
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r") as f:
+                    cfg = yaml.safe_load(f)
+                    logging.config.dictConfig(cfg)
+                    return
+            except Exception:
+                pass
+    logging.basicConfig(level=logging.INFO)
+
+
+_setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -166,11 +190,20 @@ class RAGClient:
         self.timeout = timeout
         self._token_info: Optional[TokenInfo] = None
         self._session = requests.Session()
+        # Token refresh support: store credentials for auto-refresh
+        self._credentials: Optional[tuple[str, str]] = None
+        self._remember_credentials: bool = False
         # Retry/backoff configuration
         self._max_retries: int = 3
         self._backoff_factor: float = 0.5
         # Simple in-process metrics (per-call granularity)
         self._last_retry_count: int = 0
+        # Basic metrics for logging/observability
+        self._metrics = {
+            "request_count": 0,
+            "error_count": 0,
+            "latency_ms_total": 0.0,
+        }
 
         # Set default headers
         self._session.headers.update(
@@ -187,8 +220,22 @@ class RAGClient:
 
         if self._token_info and not self._token_info.is_expired:
             return {"Authorization": f"Bearer {self._token_info.access_token}"}
+        # Token expired or absent: attempt to refresh if credentials stored
+        if self._credentials:
+            self._refresh_token()
+            if self._token_info and not self._token_info.is_expired:
+                return {"Authorization": f"Bearer {self._token_info.access_token}"}
 
         raise AuthenticationError("Not authenticated. Call login() first.")
+
+    def _refresh_token(self) -> None:
+        """Refresh token using stored credentials if available."""
+        if not self._credentials:
+            raise AuthenticationError("Not authenticated. Call login() first.")
+        email, password = self._credentials
+        # Re-authenticate to obtain a new token
+        token = self.login(email, password, remember_credentials=True)
+        self._token_info = token
 
     def _request(
         self,
@@ -201,12 +248,19 @@ class RAGClient:
         """Make HTTP request with retries and backoff."""
         url = f"{self.base_url}{endpoint}"
 
+        start_ts = time.time()
+        self._metrics["request_count"] += 1
+
         headers = {}
         if auth:
             headers.update(self._get_auth_header())
 
         attempt = 0
         self._last_retry_count = 0
+        # Retry metrics
+        self._retry_stats = getattr(
+            self, "_retry_stats", {"transient_retries": 0, "total_backoff": 0.0}
+        )
         while True:
             try:
                 response = self._session.request(
@@ -218,12 +272,32 @@ class RAGClient:
                     timeout=self.timeout,
                 )
             except requests.exceptions.RequestException as e:
+                duration_ms = int((time.time() - start_ts) * 1000)
+                self._metrics["error_count"] += 1
+                logger.error(
+                    "Request failed",
+                    extra={
+                        "endpoint": endpoint,
+                        "method": method,
+                        "tenant_id": self.tenant_id,
+                        "status": 0,
+                        "duration_ms": duration_ms,
+                        "error": str(e),
+                    },
+                )
                 raise APIError(f"Request failed: {str(e)}", status_code=0)
 
             # Retry on transient errors
             if response.status_code == 429:
                 retry_after = int(response.headers.get("Retry-After", 60))
                 self._last_retry_count = attempt
+                # update metrics
+                self._retry_stats["transient_retries"] = (
+                    self._retry_stats.get("transient_retries", 0) + 1
+                )
+                self._retry_stats["total_backoff"] = self._retry_stats.get(
+                    "total_backoff", 0.0
+                ) + float(retry_after)
                 if attempt < self._max_retries:
                     logger.warning(
                         "Retrying due to 429 on %s %s (attempt %d, after %ss)",
@@ -233,26 +307,34 @@ class RAGClient:
                         retry_after,
                     )
                     time.sleep(max(1, retry_after))
+                    self._retry_stats["total_backoff"] = self._retry_stats.get(
+                        "total_backoff", 0.0
+                    ) + float(retry_after)
                     attempt += 1
                     continue
                 raise RateLimitError("Rate limit exceeded", retry_after=retry_after)
-
             if 500 <= response.status_code < 600:
                 self._last_retry_count = attempt
                 if attempt < self._max_retries:
-                    backoff = int((self._backoff_factor * (2**attempt)) * 1000)  # ms
+                    backoff = max(0.5, self._backoff_factor * (2**attempt))  # seconds
+                    self._retry_stats["transient_retries"] = (
+                        self._retry_stats.get("transient_retries", 0) + 1
+                    )
+                    self._retry_stats["total_backoff"] = (
+                        self._retry_stats.get("total_backoff", 0.0) + backoff
+                    )
                     logger.warning(
-                        "Retrying due to server error on %s %s (status %d, attempt %d, backoff %dms)",
+                        "Retrying due to server error on %s %s (status %d, attempt %d, backoff %ss)",
                         method,
                         endpoint,
                         response.status_code,
                         attempt,
                         backoff,
                     )
-                    time.sleep(max(0.5, backoff / 1000))
+                    time.sleep(backoff)
                     attempt += 1
                     continue
-                # fallthrough to error return
+                # fallthrough to error return if max retries exceeded
 
             # Handle other errors
             if not response.ok:
@@ -263,9 +345,39 @@ class RAGClient:
                     response=error_data,
                 )
 
-            return response.json() if response.content else {}
+            if response.content:
+                duration_ms = int((time.time() - start_ts) * 1000)
+                self._metrics["latency_ms_total"] += duration_ms
+                logger.info(
+                    "HTTP request completed",
+                    extra={
+                        "endpoint": endpoint,
+                        "method": method,
+                        "tenant_id": self.tenant_id,
+                        "status": response.status_code,
+                        "duration_ms": duration_ms,
+                        "error": None,
+                    },
+                )
+                return response.json()
+            duration_ms = int((time.time() - start_ts) * 1000)
+            self._metrics["latency_ms_total"] += duration_ms
+            logger.info(
+                "HTTP request completed (no content)",
+                extra={
+                    "endpoint": endpoint,
+                    "method": method,
+                    "tenant_id": self.tenant_id,
+                    "status": 0,
+                    "duration_ms": duration_ms,
+                    "error": None,
+                },
+            )
+            return {}
 
-    def login(self, email: str, password: str) -> TokenInfo:
+    def login(
+        self, email: str, password: str, remember_credentials: bool = False
+    ) -> TokenInfo:
         """
         Authenticate with email and password.
 
@@ -299,6 +411,8 @@ class RAGClient:
                 obtained_at=datetime.utcnow(),
             )
 
+            if remember_credentials:
+                self._credentials = (email, password)  # store for refresh
             return self._token_info
 
         except APIError as e:
@@ -577,6 +691,12 @@ class RAGClient:
     def close(self):
         """Close client session."""
         self._session.close()
+
+    def get_retry_stats(self) -> Dict[str, Any]:
+        """Return retry-related metrics collected during requests."""
+        return getattr(
+            self, "_retry_stats", {"transient_retries": 0, "total_backoff": 0.0}
+        )
 
     def __enter__(self):
         """Context manager entry."""

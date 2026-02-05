@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     extraction_max_tokens: int = 1024
     extraction_temperature: float = 0.1
 
+    # Cache settings
+    cache_enabled: bool = True
+    cache_ttl_search: int = 300
+    cache_ttl_rag: int = 600
+    cache_ttl_extraction: int = 1800
+    redis_url: str = "redis://localhost:6379/0"
+
     model_config = SettingsConfigDict(env_prefix="RAG_")
 
 

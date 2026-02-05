@@ -44,5 +44,6 @@ _def_model = "intfloat/multilingual-e5-base"
 
 def embedder_factory() -> BaseEmbedder:
     if settings.embedding_backend == "sentence-transformers":
-        return SentenceTransformerEmbedder(_def_model, settings.embedding_dim)
+        model_name = getattr(settings, "embedding_model", _def_model)
+        return SentenceTransformerEmbedder(model_name, settings.embedding_dim)
     return HashEmbedder(settings.embedding_dim)

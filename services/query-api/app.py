@@ -6,6 +6,17 @@ from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+import sys
+
+sys.path.insert(0, "/Users/thiennlinh/Documents/New project/shared")
+from cache import (
+    cache_manager,
+    cache_search,
+    cache_rag,
+    cache_extraction,
+    invalidate_tenant_cache,
+)
+
 from config import settings
 from db import get_chunks_by_ids, get_db_session
 from embedding import embedder_factory
@@ -84,8 +95,28 @@ def healthz():
     return {"status": "ok", "time": datetime.now(UTC).isoformat()}
 
 
-@app.post("/search", response_model=SearchResponse)
-def search(payload: SearchRequest):
+@app.get("/cache/stats")
+def cache_stats():
+    """Get cache statistics."""
+    if not settings.cache_enabled:
+        return {"enabled": False}
+    return cache_manager.get_stats()
+
+
+@app.post("/cache/invalidate")
+def invalidate_cache(tenant_id: Optional[str] = None):
+    """Invalidate cache for a tenant or all."""
+    if not settings.cache_enabled:
+        return {"message": "Cache disabled"}
+    if tenant_id:
+        invalidate_tenant_cache(tenant_id)
+    else:
+        cache_manager.clear_all()
+    return {"message": "Cache invalidated"}
+
+
+def _perform_search(payload: SearchRequest) -> SearchResponse:
+    """Internal search logic without caching."""
     top_k = payload.top_k or settings.top_k
     embedder = embedder_factory()
     qdrant = QdrantStore()
@@ -166,7 +197,7 @@ def search(payload: SearchRequest):
                 + candidates[settings.rerank_top_n :]
             )
     elif settings.rerank_backend == "basic":
-        texts = [c.text for c, _ in candidates]
+        texts = [c.text for c in candidates]
         scores = basic_rerank(payload.query, texts)
         candidates = [(c, s) for (c, _), s in zip(candidates, scores)]
 
@@ -213,6 +244,21 @@ def search(payload: SearchRequest):
             break
 
     return SearchResponse(query=payload.query, results=results)
+
+
+@cache_search(ttl=300)
+def _cached_search(query: str, tenant_id: str, top_k: int = 10):
+    """Cached search wrapper."""
+    payload = SearchRequest(query=query, tenant_id=tenant_id or "default", top_k=top_k)
+    return _perform_search(payload)
+
+
+@app.post("/search", response_model=SearchResponse)
+def search(payload: SearchRequest):
+    if not settings.cache_enabled:
+        return _perform_search(payload)
+    top_k = payload.top_k or 10
+    return _cached_search(payload.query, payload.tenant_id or "default", top_k)
 
 
 @app.post("/citations", response_model=CitationsResponse)
@@ -266,6 +312,75 @@ class RAGResponse(BaseModel):
     session_id: Optional[str] = None
 
 
+@cache_rag(ttl=600)
+def _cached_rag(query: str, tenant_id: str, top_k: int, temperature: float):
+    """Cached RAG wrapper for LLM responses."""
+    search_payload = SearchRequest(query=query, tenant_id=tenant_id, top_k=top_k)
+    search_response = _perform_search(search_payload)
+
+    if not search_response.results:
+        return RAGResponse(
+            query=query,
+            answer="I don't have enough information to answer this question.",
+            citations=[],
+            confidence=0.0,
+        )
+
+    prompt = build_rag_query_prompt(
+        query=query,
+        search_results=[result.dict() for result in search_response.results],
+        max_context_length=settings.rag_max_context_length,
+    )
+
+    resp = httpx.post(
+        f"{settings.llm_gateway_url}/rag",
+        json={
+            "query": query,
+            "context": prompt,
+            "max_tokens": settings.rag_max_tokens,
+            "temperature": temperature,
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    llm_response = resp.json()
+
+    citation_map = {
+        f"{r.doc_id}:{r.chunk_index}": RAGCitation(
+            doc_id=r.doc_id,
+            source=r.source,
+            source_id=r.source_id,
+            version=r.version,
+            section_path=r.section_path,
+            heading_path=r.heading_path,
+        )
+        for r in search_response.results
+    }
+
+    response_citations = []
+    for citation_ref in llm_response.get("citations", []):
+        for key, citation in citation_map.items():
+            if citation_ref in key or citation.doc_id in citation_ref:
+                response_citations.append(citation)
+                break
+
+    seen = set()
+    unique_citations = []
+    for c in response_citations:
+        key = (c.doc_id, c.chunk_index)
+        if key not in seen:
+            seen.add(key)
+            unique_citations.append(c)
+
+    return RAGResponse(
+        query=query,
+        answer=llm_response.get("answer", ""),
+        citations=unique_citations,
+        confidence=llm_response.get("confidence", 0.0),
+        model=llm_response.get("model"),
+    )
+
+
 @app.post("/rag", response_model=RAGResponse)
 def rag_query(payload: RAGRequest):
     """
@@ -276,85 +391,13 @@ def rag_query(payload: RAGRequest):
     3. Calls LLM Gateway for answer generation
     4. Returns answer with citations
     """
-    # Step 1: Search for relevant documents
-    search_payload = SearchRequest(
-        query=payload.query,
-        tenant_id=payload.tenant_id,
-        top_k=payload.top_k,
-    )
-    search_response = search(search_payload)
+    temperature = payload.temperature or settings.rag_default_temperature
 
-    if not search_response.results:
-        return RAGResponse(
-            query=payload.query,
-            answer="I don't have enough information to answer this question.",
-            citations=[],
-            confidence=0.0,
-            session_id=payload.session_id,
-        )
+    if not settings.cache_enabled:
+        return _cached_rag(payload.query, payload.tenant_id, payload.top_k, temperature)
 
-    # Step 2: Build RAG prompt with context
-    prompt = build_rag_query_prompt(
-        query=payload.query,
-        search_results=[result.dict() for result in search_response.results],
-        max_context_length=settings.rag_max_context_length,
-    )
-
-    # Step 3: Call LLM Gateway for RAG
     try:
-        resp = httpx.post(
-            f"{settings.llm_gateway_url}/rag",
-            json={
-                "query": payload.query,
-                "context": prompt,
-                "max_tokens": settings.rag_max_tokens,
-                "temperature": payload.temperature or settings.rag_default_temperature,
-            },
-            timeout=120,
-        )
-        resp.raise_for_status()
-        llm_response = resp.json()
-
-        # Build citation objects from search results
-        citation_map = {
-            f"{r.doc_id}:{r.chunk_index}": RAGCitation(
-                doc_id=r.doc_id,
-                source=r.source,
-                source_id=r.source_id,
-                version=r.version,
-                section_path=r.section_path,
-                heading_path=r.heading_path,
-            )
-            for r in search_response.results
-        }
-
-        # Map LLM citations to full citation objects
-        response_citations = []
-        for citation_ref in llm_response.get("citations", []):
-            # Try to find matching citation
-            for key, citation in citation_map.items():
-                if citation_ref in key or citation.doc_id in citation_ref:
-                    response_citations.append(citation)
-                    break
-
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_citations = []
-        for c in response_citations:
-            key = (c.doc_id, c.chunk_index)
-            if key not in seen:
-                seen.add(key)
-                unique_citations.append(c)
-
-        return RAGResponse(
-            query=payload.query,
-            answer=llm_response.get("answer", ""),
-            citations=unique_citations,
-            confidence=llm_response.get("confidence", 0.0),
-            model=llm_response.get("model"),
-            session_id=payload.session_id,
-        )
-
+        return _cached_rag(payload.query, payload.tenant_id, payload.top_k, temperature)
     except Exception as e:
         return RAGResponse(
             query=payload.query,

@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "rag_chunks"
     embedding_dim: int = 384
-    embedding_backend: str = "hash"
+    embedding_backend: str = "sentence-transformers"
+    embedding_model: str = "intfloat/multilingual-e5-base"
 
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "rag_chunks"
