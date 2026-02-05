@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "rag-platform-e2e",
     "name": "RAG Platform - E2E Tests",
-    "description": "End-to-end API tests cho RAG Knowledge Base Platform\\n\\nUsage with Newman:\\n  newman run rag-platform.json --env-var \"base_url=http://localhost:8080\"",
+    "description": "End-to-end API tests cho RAG Knowledge Base Platform\n\nUsage with Newman:\n  newman run rag-platform.json --env-var \"base_url=http://localhost:8080\"",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [

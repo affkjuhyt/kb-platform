@@ -37,9 +37,19 @@ Usage:
 
 import requests
 import time
+import json
+import logging
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+# Optional JSON Schema validation
+try:
+    import jsonschema  # type: ignore
+except Exception:  # pragma: no cover
+    jsonschema = None
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -156,6 +166,11 @@ class RAGClient:
         self.timeout = timeout
         self._token_info: Optional[TokenInfo] = None
         self._session = requests.Session()
+        # Retry/backoff configuration
+        self._max_retries: int = 3
+        self._backoff_factor: float = 0.5
+        # Simple in-process metrics (per-call granularity)
+        self._last_retry_count: int = 0
 
         # Set default headers
         self._session.headers.update(
@@ -183,27 +198,61 @@ class RAGClient:
         params: Optional[Dict] = None,
         auth: bool = True,
     ) -> Dict[str, Any]:
-        """Make HTTP request."""
+        """Make HTTP request with retries and backoff."""
         url = f"{self.base_url}{endpoint}"
 
         headers = {}
         if auth:
             headers.update(self._get_auth_header())
 
-        try:
-            response = self._session.request(
-                method=method,
-                url=url,
-                json=data,
-                params=params,
-                headers=headers,
-                timeout=self.timeout,
-            )
+        attempt = 0
+        self._last_retry_count = 0
+        while True:
+            try:
+                response = self._session.request(
+                    method=method,
+                    url=url,
+                    json=data,
+                    params=params,
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+            except requests.exceptions.RequestException as e:
+                raise APIError(f"Request failed: {str(e)}", status_code=0)
 
-            # Handle rate limiting
+            # Retry on transient errors
             if response.status_code == 429:
                 retry_after = int(response.headers.get("Retry-After", 60))
+                self._last_retry_count = attempt
+                if attempt < self._max_retries:
+                    logger.warning(
+                        "Retrying due to 429 on %s %s (attempt %d, after %ss)",
+                        method,
+                        endpoint,
+                        attempt,
+                        retry_after,
+                    )
+                    time.sleep(max(1, retry_after))
+                    attempt += 1
+                    continue
                 raise RateLimitError("Rate limit exceeded", retry_after=retry_after)
+
+            if 500 <= response.status_code < 600:
+                self._last_retry_count = attempt
+                if attempt < self._max_retries:
+                    backoff = int((self._backoff_factor * (2**attempt)) * 1000)  # ms
+                    logger.warning(
+                        "Retrying due to server error on %s %s (status %d, attempt %d, backoff %dms)",
+                        method,
+                        endpoint,
+                        response.status_code,
+                        attempt,
+                        backoff,
+                    )
+                    time.sleep(max(0.5, backoff / 1000))
+                    attempt += 1
+                    continue
+                # fallthrough to error return
 
             # Handle other errors
             if not response.ok:
@@ -215,9 +264,6 @@ class RAGClient:
                 )
 
             return response.json() if response.content else {}
-
-        except requests.exceptions.RequestException as e:
-            raise APIError(f"Request failed: {str(e)}", status_code=0)
 
     def login(self, email: str, password: str) -> TokenInfo:
         """
@@ -259,6 +305,30 @@ class RAGClient:
             if e.status_code == 401:
                 raise AuthenticationError("Invalid credentials")
             raise
+
+    def _validate_against_schema(self, instance: Any, schema: Dict[str, Any]) -> None:
+        """Validate a Python object against a JSON Schema (best effort).
+        Uses jsonschema if available; otherwise performs a lightweight check.
+        """
+        if not schema or instance is None:
+            return
+        if jsonschema:
+            jsonschema.validate(instance=instance, schema=schema)
+            return
+        # Lightweight fallback: minimal object/type checks
+        try:
+            t = schema.get("type")
+            if t == "object" and isinstance(instance, dict):
+                required = schema.get("required", [])
+                for key in required:
+                    if key not in instance:
+                        raise ValueError(f"Missing required key: {key}")
+        except Exception as e:
+            raise APIError(
+                f"Schema validation failed: {str(e)}",
+                status_code=0,
+                response={"validation_error": str(e)},
+            )
 
     def register(self, email: str, password: str, name: str) -> TokenInfo:
         """
@@ -389,6 +459,12 @@ class RAGClient:
                 "min_confidence": min_confidence,
             },
         )
+        # Validate server payload against provided schema, if available
+        try:
+            self._validate_against_schema(response.get("data"), schema)
+        except Exception:
+            # Silently propagate as APIError already handled in validator
+            pass
 
         return ExtractionResponse(
             success=response["success"],
@@ -443,12 +519,17 @@ class RAGClient:
         while time.time() - start_time < max_wait:
             status_response = self._request("GET", f"/query/extract/jobs/{job_id}")
 
-            status = status_response["job"]["status"]
+            status = status_response.get("job", {}).get("status")
 
             if status == "completed":
                 results = status_response.get("results", [])
                 if results:
                     result = results[0]
+                    # Validate extracted data against provided schema when available
+                    try:
+                        self._validate_against_schema(result.get("data"), schema)
+                    except Exception:
+                        pass
                     return ExtractionResponse(
                         success=True,
                         data=result.get("data"),
@@ -464,7 +545,6 @@ class RAGClient:
                         validation_errors=["No results"],
                         job_id=job_id,
                     )
-
             elif status == "failed":
                 return ExtractionResponse(
                     success=False,

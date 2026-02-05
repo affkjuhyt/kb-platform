@@ -97,52 +97,71 @@ class RAGClient {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    // Retry/backoff configuration
+    const maxRetries = 3;
+    let attempt = 0;
+    const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-    try {
-      const fetchOptions = {
-        method,
-        headers,
-        signal: controller.signal
-      };
+    while (true) {
+      try {
+        const fetchOptions = {
+          method,
+          headers,
+          signal: controller.signal
+        };
 
       if (data && (method === 'POST' || method === 'PUT')) {
         fetchOptions.body = JSON.stringify(data);
       }
+        while (true) {
+          const response = await fetch(url, fetchOptions);
+          clearTimeout(timeoutId);
 
-      const response = await fetch(url, fetchOptions);
-      clearTimeout(timeoutId);
+          // Retry on rate limit
+          if (response.status === 429) {
+            const retryAfter = parseInt(response.headers.get('Retry-After')) || 60;
+            if (attempt < maxRetries) {
+              console.warn(`Retry ${attempt + 1} after 429 for ${method} ${endpoint}, retrying in ${retryAfter}s`);
+              await sleep(retryAfter * 1000);
+              attempt++;
+              continue;
+            }
+            throw new RateLimitError('Rate limit exceeded', retryAfter);
+          }
 
-      // Handle rate limiting
-      if (response.status === 429) {
-        const retryAfter = parseInt(response.headers.get('Retry-After')) || 60;
-        throw new RateLimitError('Rate limit exceeded', retryAfter);
+          // Retry on server errors
+          if (response.status >= 500 && response.status < 600) {
+            if (attempt < maxRetries) {
+              const backoff = Math.floor((0.5 * Math.pow(2, attempt)) * 1000);
+              console.warn(`Retry ${attempt + 1} after ${response.status} on ${method} ${endpoint}, backoff ${backoff}ms`);
+              await sleep(backoff);
+              attempt++;
+              continue;
+            }
+          }
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new RAGError(
+              errorData.detail || `HTTP ${response.status}`,
+              response.status,
+              errorData
+            );
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            return await response.json();
+          }
+          return null;
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new RAGError('Request timeout');
+        }
+        throw error;
       }
-
-      // Handle other errors
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new RAGError(
-          errorData.detail || `HTTP ${response.status}`,
-          response.status,
-          errorData
-        );
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        return await response.json();
-      }
-      
-      return null;
-
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      if (error.name === 'AbortError') {
-        throw new RAGError('Request timeout');
-      }
-      
-      throw error;
     }
   }
 
@@ -160,6 +179,41 @@ class RAGClient {
     }
 
     throw new AuthenticationError('Not authenticated. Call login() first.');
+  }
+
+  _validateAgainstSchema(instance, schema) {
+    if (!schema || instance == null) return;
+    try {
+      const t = schema.type;
+      if (t === 'object' && schema.properties) {
+        const required = schema.required || [];
+        for (const key of required) {
+          if (!(key in instance)) {
+            throw new Error(`Missing required key: ${key}`);
+          }
+        }
+        for (const key of Object.keys(schema.properties)) {
+          const prop = schema.properties[key];
+          const pt = prop.type;
+          const val = instance[key];
+          if (val == null) continue;
+          if (pt === 'string' && typeof val !== 'string') {
+            throw new Error(`Invalid type for ${key}, expected string`);
+          }
+          if (pt === 'number' && typeof val !== 'number') {
+            throw new Error(`Invalid type for ${key}, expected number`);
+          }
+          if (pt === 'integer' && !Number.isInteger(val)) {
+            throw new Error(`Invalid type for ${key}, expected integer`);
+          }
+          if (pt === 'array' && !Array.isArray(val)) {
+            throw new Error(`Invalid type for ${key}, expected array`);
+          }
+        }
+      }
+    } catch (e) {
+      throw new RAGError(`Schema validation failed: ${e.message}`, null, {});
+    }
   }
 
   /**
@@ -303,13 +357,20 @@ class RAGClient {
   async extract(query, schema, options = {}) {
     const { topK = 5, minConfidence = 0.7 } = options;
 
-    return await this._request('POST', '/query/extract', {
+    const resp = await this._request('POST', '/query/extract', {
       query,
       tenant_id: this.tenantId,
       schema,
       top_k: topK,
       min_confidence: minConfidence
     });
+    // Validate the response data against provided schema if available
+    try {
+      this._validateAgainstSchema(resp.data, schema);
+    } catch (e) {
+      // ignore host-side validation errors to avoid breaking API integration
+    }
+    return resp;
   }
 
   /**
@@ -354,11 +415,17 @@ class RAGClient {
       );
 
       const status = statusResponse.job.status;
-
+      
       if (status === 'completed') {
         const results = statusResponse.results || [];
         if (results.length > 0) {
           const result = results[0];
+          // Validate data if schema provided
+          try {
+            this._validateAgainstSchema(result.data, schema);
+          } catch (e) {
+            // ignore validation errors on client side
+          }
           return {
             success: true,
             data: result.data,
