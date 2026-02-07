@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import httpx
 
 from config import settings
-from prompt_builder import RAGPromptBuilder, ContextChunk
+from utils.prompt_builder import RAGPromptBuilder, ContextChunk
 
 logger = logging.getLogger("extraction")
 

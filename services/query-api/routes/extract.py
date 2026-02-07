@@ -1,14 +1,11 @@
-from schema import ExtractRequest
-from schema import ExtractResult
+from schema import ExtractRequest, ExtractResult, ExtractionJobResponse
 from typing import Optional
 from fastapi import HTTPException
-from extraction_storage import ExtractionStorageService
+from utils.extraction_storage import ExtractionStorageService
 from db import get_db_session
 from sqlalchemy.orm import Session
-from fastapi import Depends
-from schema import ExtractionJobResponse
-from fastapi import APIRouter
-from extraction import ExtractionService
+from fastapi import Depends, APIRouter
+from utils.extraction import ExtractionService
 
 extract_router = APIRouter()
 

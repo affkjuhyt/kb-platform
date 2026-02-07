@@ -21,6 +21,7 @@ opensearch-py==2.6.0
 # ML/AI
 sentence-transformers==3.0.1
 torch==2.3.1
+flashrank==0.2.8
 
 # Document Processing
 beautifulsoup4==4.12.3

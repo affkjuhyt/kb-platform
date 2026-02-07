@@ -24,6 +24,7 @@ Usage:
 """
 
 import json
+import inspect
 import pickle
 import hashlib
 import zlib
@@ -34,12 +35,13 @@ import redis
 from dataclasses import dataclass
 import time
 import threading
-from collections import OrderedDict
 import os
+from collections import OrderedDict
+from config import settings
 
 # Configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+REDIS_URL = settings.redis_url
+CACHE_ENABLED = settings.cache_enabled
 CACHE_COMPRESSION = os.getenv("CACHE_COMPRESSION", "true").lower() == "true"
 CACHE_COMPRESSION_THRESHOLD = int(
     os.getenv("CACHE_COMPRESSION_THRESHOLD", "1024")
@@ -327,27 +329,44 @@ class CacheManager:
         """Decorator for caching search results."""
 
         def decorator(func: Callable):
-            @wraps(func)
-            def wrapper(query: str, tenant_id: str, *args, **kwargs):
-                if not self.enabled:
-                    return func(query, tenant_id, *args, **kwargs)
+            if inspect.iscoroutinefunction(func):
 
-                cache_key = self._generate_key(
-                    "search", query, tenant_id, *args, **kwargs
-                )
+                @wraps(func)
+                async def wrapper(query: str, tenant_id: str, *args, **kwargs):
+                    if not self.enabled:
+                        return await func(query, tenant_id, *args, **kwargs)
 
-                # Try cache
-                cached = self.get(cache_key)
-                if cached is not None:
-                    return cached
+                    cache_key = self._generate_key(
+                        "search", query, tenant_id, *args, **kwargs
+                    )
+                    cached = self.get(cache_key)
+                    if cached is not None:
+                        return cached
 
-                # Execute and cache
-                result = func(query, tenant_id, *args, **kwargs)
-                self.set(cache_key, result, ttl, tags=["search", tenant_id])
+                    result = await func(query, tenant_id, *args, **kwargs)
+                    self.set(cache_key, result, ttl, tags=["search", tenant_id])
+                    return result
 
-                return result
+                return wrapper
+            else:
 
-            return wrapper
+                @wraps(func)
+                def wrapper(query: str, tenant_id: str, *args, **kwargs):
+                    if not self.enabled:
+                        return func(query, tenant_id, *args, **kwargs)
+
+                    cache_key = self._generate_key(
+                        "search", query, tenant_id, *args, **kwargs
+                    )
+                    cached = self.get(cache_key)
+                    if cached is not None:
+                        return cached
+
+                    result = func(query, tenant_id, *args, **kwargs)
+                    self.set(cache_key, result, ttl, tags=["search", tenant_id])
+                    return result
+
+                return wrapper
 
         return decorator
 
@@ -355,25 +374,44 @@ class CacheManager:
         """Decorator for caching RAG responses."""
 
         def decorator(func: Callable):
-            @wraps(func)
-            def wrapper(query: str, tenant_id: str, *args, **kwargs):
-                if not self.enabled:
-                    return func(query, tenant_id, *args, **kwargs)
+            if inspect.iscoroutinefunction(func):
 
-                cache_key = self._generate_key("rag", query, tenant_id, *args, **kwargs)
+                @wraps(func)
+                async def wrapper(query: str, tenant_id: str, *args, **kwargs):
+                    if not self.enabled:
+                        return await func(query, tenant_id, *args, **kwargs)
 
-                # Try cache
-                cached = self.get(cache_key)
-                if cached is not None:
-                    return cached
+                    cache_key = self._generate_key(
+                        "rag", query, tenant_id, *args, **kwargs
+                    )
+                    cached = self.get(cache_key)
+                    if cached is not None:
+                        return cached
 
-                # Execute and cache
-                result = func(query, tenant_id, *args, **kwargs)
-                self.set(cache_key, result, ttl, tags=["rag", tenant_id])
+                    result = await func(query, tenant_id, *args, **kwargs)
+                    self.set(cache_key, result, ttl, tags=["rag", tenant_id])
+                    return result
 
-                return result
+                return wrapper
+            else:
 
-            return wrapper
+                @wraps(func)
+                def wrapper(query: str, tenant_id: str, *args, **kwargs):
+                    if not self.enabled:
+                        return func(query, tenant_id, *args, **kwargs)
+
+                    cache_key = self._generate_key(
+                        "rag", query, tenant_id, *args, **kwargs
+                    )
+                    cached = self.get(cache_key)
+                    if cached is not None:
+                        return cached
+
+                    result = func(query, tenant_id, *args, **kwargs)
+                    self.set(cache_key, result, ttl, tags=["rag", tenant_id])
+                    return result
+
+                return wrapper
 
         return decorator
 

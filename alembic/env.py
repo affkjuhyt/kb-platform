@@ -34,7 +34,7 @@ except ImportError:
     ingestion_metadata = None
 
 try:
-    from extraction_models import Base as ExtractionBase
+    from utils.extraction_models import Base as ExtractionBase
 
     extraction_metadata = ExtractionBase.metadata
 except ImportError:

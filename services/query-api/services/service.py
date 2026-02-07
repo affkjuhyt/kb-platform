@@ -87,7 +87,7 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
                         for c, s in top
                     ],
                 },
-                timeout=30,
+                timeout=5.0,
             )
             resp.raise_for_status()
             reranked = resp.json().get("results", [])
@@ -163,10 +163,10 @@ async def _cached_search(query: str, tenant_id: str, top_k: int = 10):
 # RAG Query Endpoints (Phase 6)
 # ============================================================================
 @cache_rag(ttl=600)
-def _cached_rag(query: str, tenant_id: str, top_k: int, temperature: float):
+async def _cached_rag(query: str, tenant_id: str, top_k: int, temperature: float):
     """Cached RAG wrapper for LLM responses."""
     search_payload = SearchRequest(query=query, tenant_id=tenant_id, top_k=top_k)
-    search_response = _perform_search(search_payload)
+    search_response = await _perform_search(search_payload)
 
     if not search_response.results:
         return RAGResponse(
@@ -178,7 +178,7 @@ def _cached_rag(query: str, tenant_id: str, top_k: int, temperature: float):
 
     prompt = build_rag_query_prompt(
         query=query,
-        search_results=[result.dict() for result in search_response.results],
+        search_results=[result.model_dump() for result in search_response.results],
         max_context_length=settings.rag_max_context_length,
     )
 

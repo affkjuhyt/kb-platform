@@ -43,11 +43,17 @@ def _get_model():
         return None
     if _cross_encoder is None:
         try:
-            from sentence_transformers import CrossEncoder
+            from flashrank import Ranker
 
-            _cross_encoder = CrossEncoder(settings.model, device=settings.device)
+            logger.info("Initializing FlashRank Ranker (CPU Optimized)...")
+            # FlashRank downloads models to cache_dir
+            import os
+
+            cache_dir = os.getenv("HF_HOME", "/tmp/flashrank")
+            _cross_encoder = Ranker(cache_dir=cache_dir)
+            logger.info("✓ FlashRank Ranker loaded")
         except Exception as exc:
-            logger.warning("Failed to load cross-encoder: %s", exc)
+            logger.warning("Failed to load FlashRank: %s", exc)
             _failed = True
             return None
     return _cross_encoder
@@ -110,33 +116,39 @@ def rerank(payload: RerankRequest):
     texts = [c.text for c in payload.candidates]
     model = _get_model()
 
-    # Score computation
     if model is None:
-        logger.info("Using basic reranking (cross-encoder unavailable)")
+        logger.info("Using basic reranking (FlashRank unavailable)")
         scores = _basic_rerank(payload.query, texts)
+        # Build results with scores
+        results = [
+            Candidate(
+                id=payload.candidates[i].id,
+                text=payload.candidates[i].text,
+                score=float(scores[i]),
+            )
+            for i in range(len(payload.candidates))
+        ]
+        # Sort by score descending
+        results.sort(key=lambda x: x.score or 0.0, reverse=True)
     else:
-        logger.info(f"Using cross-encoder: {settings.model}")
-        # Process in batches if needed
-        scores = []
-        for i in range(0, len(texts), settings.max_batch):
-            batch_texts = texts[i : i + settings.max_batch]
-            pairs = [(payload.query, t) for t in batch_texts]
-            batch_scores = model.predict(pairs)
-            scores.extend(batch_scores)
+        logger.info("Using FlashRank for reranking")
+        from flashrank import RerankRequest as FlashRerankRequest
 
-    # Normalize scores if enabled
-    if settings.normalize_scores:
-        scores = _normalize_scores(scores)
+        # Prepare passages for FlashRank
+        passages = [{"id": c.id, "text": c.text} for c in payload.candidates]
 
-    # Build results with scores
-    results = [
-        Candidate(
-            id=payload.candidates[i].id,
-            text=payload.candidates[i].text,
-            score=float(scores[i]),
-        )
-        for i in range(len(payload.candidates))
-    ]
+        rerank_req = FlashRerankRequest(query=payload.query, passages=passages)
+        # FlashRank handles batching and normalization internally
+        flash_results = model.rerank(rerank_req)
+
+        results = [
+            Candidate(
+                id=str(r["id"]),
+                text=r["text"],
+                score=float(r["score"]),
+            )
+            for r in flash_results
+        ]
 
     # Sort by score descending
     results.sort(key=lambda x: x.score or 0.0, reverse=True)

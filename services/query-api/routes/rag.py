@@ -1,7 +1,6 @@
 from services.service import _cached_rag
 from config import settings
-from schema import RAGRequest
-from schema import RAGResponse
+from schema import RAGRequest, RAGResponse
 from fastapi import APIRouter
 
 rag_router = APIRouter()

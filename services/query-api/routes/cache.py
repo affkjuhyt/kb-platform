@@ -1,5 +1,5 @@
 from config import settings
-from cache import cache_manager, invalidate_tenant_cache
+from utils.cache import cache_manager, invalidate_tenant_cache
 from fastapi import APIRouter
 from typing import Optional
 

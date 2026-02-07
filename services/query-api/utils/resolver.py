@@ -72,18 +72,18 @@ def resolve_conflicts(
     Returns:
         Tuple of (resolved_chunks, conflict_info)
     """
-    # Detect conflicts first
-    conflicts = detect_conflicts(chunks)
-
-    # Group by source_id
+    # Detect conflicts grouping by (source_id, chunk_index)
     grouped = defaultdict(list)
     for c in chunks:
-        grouped[c.source_id].append(c)
+        # We handle conflicts at the specific chunk level
+        key = (c.source_id, c.chunk_index)
+        grouped[key].append(c)
 
     resolved = []
-    resolved_ids = []
+    conflicts = []
 
-    for source_id, items in grouped.items():
+    for key, items in grouped.items():
+        source_id, chunk_index = key
         # Sort by:
         # 1. Source priority (descending - higher authority first)
         # 2. Version (descending - latest first)
@@ -94,20 +94,28 @@ def resolve_conflicts(
             ),
             reverse=True,
         )
+
         winner = items[0]
         resolved.append(winner)
-        resolved_ids.append(f"{winner.doc_id}:{winner.chunk_index}")
 
-        # Update conflict info with winner
-        for conflict in conflicts:
-            if conflict.source_id == source_id:
-                conflict.winner_id = f"{winner.doc_id}:{winner.chunk_index}"
+        if len(items) > 1:
+            # Check resolution type
+            versions = set(c.version for c in items)
+            res = "version_conflict" if len(versions) > 1 else "authority_conflict"
+            conflicts.append(
+                ConflictInfo(
+                    source_id=f"{source_id}:{chunk_index}",
+                    conflicting_chunks=items,
+                    resolution=res,
+                    winner_id=f"{winner.doc_id}:{winner.chunk_index}",
+                )
+            )
 
     # Log conflicts if requested
     if log_conflicts and conflicts:
         for c in conflicts:
             logger.warning(
-                f"Conflict detected for source_id={c.source_id}: {c.resolution} "
+                f"Conflict detected for {c.source_id}: {c.resolution} "
                 f"({len(c.conflicting_chunks)} versions). "
                 f"Winner: {c.winner_id}"
             )

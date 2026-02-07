@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_grpc_port: int = 6334
     qdrant_collection: str = "rag_chunks"
-    embedding_dim: int = 768
+    embedding_dim: int = 1024
 
     opensearch_url: str = "http://localhost:9200"
     opensearch_index: str = "rag_chunks"

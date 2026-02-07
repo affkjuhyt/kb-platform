@@ -144,13 +144,79 @@ class AsyncBatchEmbedder:
         return [cached_results[i] for i in range(len(texts))]
 
 
+class FastEmbedEmbedder(BaseEmbedder):
+    """Semantic embedder optimized for CPU using FastEmbed."""
+
+    def __init__(self, model_name: str, dim: int, threads: int = 4):
+        try:
+            from fastembed import TextEmbedding
+
+            self._dim = dim
+            self._model_name = model_name
+            # Set cache directory - use HF_HOME as primary
+            cache_dir = os.environ.get(
+                "HF_HOME",
+                os.environ.get("SENTENCE_TRANSFORMERS_HOME", "/tmp/fastembed_cache"),
+            )
+
+            print(f"⏳ Loading FastEmbed model: {model_name}...")
+            self._model = TextEmbedding(
+                model_name=model_name, cache_dir=cache_dir, threads=threads
+            )
+            self._backend = "fastembed"
+            print(f"✓ FastEmbed model loaded: {model_name}")
+        except Exception as e:
+            print(f"⚠ FastEmbed load failed, falling back to SentenceTransformers: {e}")
+            from sentence_transformers import SentenceTransformer
+
+            self._model_name = model_name
+            self._dim = dim
+            cache_dir = os.environ.get(
+                "HF_HOME",
+                os.environ.get("TRANSFORMERS_CACHE", "/tmp/transformers_cache"),
+            )
+            self._model = SentenceTransformer(model_name, cache_folder=cache_dir)
+            self._backend = "sentence-transformers"
+            from concurrent.futures import ThreadPoolExecutor
+
+            self._executor = ThreadPoolExecutor(max_workers=threads)
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        if self._backend == "fastembed":
+            embeddings = list(self._model.embed(texts))
+            return [e.tolist() for e in embeddings]
+        else:
+            vectors = self._model.encode(
+                texts,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return [v.tolist() for v in vectors]
+
+    async def aembed(self, texts: List[str]) -> List[List[float]]:
+        # FastEmbed is generally fast enough to run in thread, or is already optimized
+        return self.embed(texts)
+
+    def embed_query(self, query: str) -> List[float]:
+        if "bge" in self._model_name.lower() or "e5" in self._model_name.lower():
+            query = f"query: {query}"
+        return self.embed([query])[0]
+
+    def embed_documents(self, documents: List[str]) -> List[List[float]]:
+        if "bge" in self._model_name.lower() or "e5" in self._model_name.lower():
+            documents = [f"passage: {doc}" for doc in documents]
+        return self.embed(documents)
+
+    async def aembed_documents(self, documents: List[str]) -> List[List[float]]:
+        return self.embed_documents(documents)
+
+
 def embedder_factory() -> BaseEmbedder:
-    batch_size = getattr(settings, "embedding_batch_size", 32)
     num_workers = getattr(settings, "embedding_num_workers", 4)
-    model_name = getattr(settings, "embedding_model", "intfloat/multilingual-e5-base")
-    return SentenceTransformerEmbedder(
-        model_name, settings.embedding_dim, batch_size, num_workers
-    )
+    model_name = getattr(settings, "embedding_model", "intfloat/multilingual-e5-large")
+    return FastEmbedEmbedder(model_name, settings.embedding_dim, num_workers)
 
 
 def async_embedder_factory() -> AsyncBatchEmbedder:

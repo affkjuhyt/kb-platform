@@ -8,34 +8,58 @@ _embedder: Optional["SentenceTransformerEmbedder"] = None
 
 
 class SentenceTransformerEmbedder:
-    """Semantic embedder using SentenceTransformers."""
+    """Semantic embedder optimized for CPU using FastEmbed."""
 
-    def __init__(self, model_name: str = "BAAI/bge-m3", dim: int = 768):
-        from sentence_transformers import SentenceTransformer
+    def __init__(
+        self, model_name: str = "intfloat/multilingual-e5-large", dim: int = 1024
+    ):
+        try:
+            from fastembed import TextEmbedding
 
-        self.dim = dim
-        self.model_name = model_name
+            # Map common HF models to fastembed models if possible
+            # intfloat/multilingual-e5-base -> intfloat/multilingual-e5-base
+            self.model_name = model_name
+            self.dim = dim
 
-        # Set cache directory
-        cache_dir = os.environ.get("TRANSFORMERS_CACHE", "/tmp/transformers_cache")
+            # Set cache directory - use HF_HOME as primary
+            cache_dir = os.environ.get(
+                "HF_HOME",
+                os.environ.get("SENTENCE_TRANSFORMERS_HOME", "/tmp/fastembed_cache"),
+            )
 
-        print(f"⏳ Loading embedding model: {model_name}...")
-        self.model = SentenceTransformer(model_name, cache_folder=cache_dir)
-        print(f"✓ Embedding model loaded: {model_name}")
+            print(f"⏳ Loading FastEmbed model: {model_name}...")
+            self.model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+            self.backend = "fastembed"
+            print(f"✓ FastEmbed model loaded: {model_name}")
+        except Exception as e:
+            print(f"⚠ FastEmbed load failed, falling back to SentenceTransformers: {e}")
+            from sentence_transformers import SentenceTransformer
+
+            self.model_name = model_name
+            self.dim = dim
+            cache_dir = os.environ.get(
+                "HF_HOME",
+                os.environ.get("TRANSFORMERS_CACHE", "/tmp/transformers_cache"),
+            )
+            self.model = SentenceTransformer(model_name, cache_folder=cache_dir)
+            self.backend = "sentence-transformers"
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts."""
         if not texts:
             return []
 
-        # Normalize and encode
-        embeddings = self.model.encode(
-            texts,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
-
-        return embeddings.tolist()
+        if self.backend == "fastembed":
+            # fastembed returns a generator
+            embeddings = list(self.model.embed(texts))
+            return [e.tolist() for e in embeddings]
+        else:
+            embeddings = self.model.encode(
+                texts,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            return embeddings.tolist()
 
     def embed_query(self, query: str) -> List[float]:
         """Embed a single query with query-specific prefix for bge/e5 models."""
@@ -60,7 +84,7 @@ def embedder_factory() -> SentenceTransformerEmbedder:
 
     if _embedder is None:
         # Use environment variable or default model
-        model_name = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-base")
+        model_name = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
         _embedder = SentenceTransformerEmbedder(
             model_name=model_name,
             dim=settings.embedding_dim,

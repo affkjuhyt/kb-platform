@@ -10,17 +10,17 @@ class Settings(BaseSettings):
     chunk_min_chars: int = 200
 
     semantic_chunk_threshold: float = 0.7
-    semantic_embedder_name: str = "intfloat/multilingual-e5-base"
+    semantic_embedder_name: str = "intfloat/multilingual-e5-large"
 
     postgres_dsn: str = "postgresql://rag:rag@localhost:5432/rag"
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_grpc_port: int = 6334
     qdrant_collection: str = "rag_chunks"
-    # FIXED: multilingual-e5-base produces 768-dimensional vectors, not 384
-    embedding_dim: int = 768
-    embedding_backend: str = "sentence-transformers"
-    embedding_model: str = "intfloat/multilingual-e5-base"
+    # FIXED: multilingual-e5-large produces 1024-dimensional vectors
+    embedding_dim: int = 1024
+    embedding_backend: str = "fastembed"
+    embedding_model: str = "intfloat/multilingual-e5-large"
 
     embedding_batch_size: int = 32
     embedding_num_workers: int = 4

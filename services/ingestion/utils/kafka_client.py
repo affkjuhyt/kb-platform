@@ -12,15 +12,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_producer = None
+
+
 class KafkaProducerFactory:
     def create_producer(self):
+        global _producer
         if not settings.kafka_brokers:
             return None
 
-        return KafkaProducer(
-            bootstrap_servers=settings.kafka_brokers.split(","),
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        )
+        if _producer is None:
+            from kafka import KafkaProducer
+
+            logger.info("Initializing Kafka singleton producer...")
+            _producer = KafkaProducer(
+                bootstrap_servers=settings.kafka_brokers.split(","),
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                acks="all",
+                retries=3,
+            )
+        return _producer
 
 
 class EventPublisher:
@@ -33,10 +44,13 @@ class EventPublisher:
             logger.warning("Kafka brokers not configured; skipping publish")
             return
         try:
-            producer.send(settings.kafka_topic, event)
-            producer.flush(5)
+            logger.info(f"Publishing event to {settings.kafka_topic}...")
+            future = producer.send(settings.kafka_topic, event)
+            # Wait for send to complete to ensure reliability for now
+            future.get(timeout=10)
+            logger.info("✓ Kafka event published successfully")
         except Exception as exc:
-            logger.warning("Failed to publish event: %s", exc)
+            logger.error("✗ Failed to publish event: %s", exc)
 
 
 def event_publisher_factory() -> EventPublisher:
