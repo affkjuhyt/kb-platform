@@ -3,9 +3,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_port: int = 8000
+
+    chunk_method: str = "sentence"  # sentence | semantic | markdown
     chunk_max_chars: int = 1200
     chunk_overlap_chars: int = 200
     chunk_min_chars: int = 200
+
+    semantic_chunk_threshold: float = 0.7
+    semantic_embedder_name: str = "intfloat/multilingual-e5-base"
 
     postgres_dsn: str = "postgresql://rag:rag@localhost:5432/rag"
 
