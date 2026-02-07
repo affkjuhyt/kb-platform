@@ -1,4 +1,5 @@
 from opensearchpy import OpenSearch
+from opensearchpy.helpers import bulk
 
 from config import settings
 
@@ -30,3 +31,15 @@ class OpenSearchStore:
 
     def index_chunk(self, chunk_id: str, body: dict) -> None:
         self._client.index(index=self._index, id=chunk_id, body=body, refresh=False)
+
+    def bulk_index(self, chunks: list[tuple[str, dict]]) -> None:
+        """Bulk index multiple chunks at once for better performance."""
+        actions = [
+            {
+                "_index": self._index,
+                "_id": chunk_id,
+                "_source": body,
+            }
+            for chunk_id, body in chunks
+        ]
+        bulk(self._client, actions, refresh=False)

@@ -406,6 +406,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /models/hf
       HF_HUB_DISABLE_SYMLINKS: "true"
     volumes:
+      - ../../services/rerank:/app
       - model_cache:/models
     ports:
       - "8005:8000"

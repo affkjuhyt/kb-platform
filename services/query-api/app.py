@@ -10,6 +10,7 @@ sys.path.insert(0, "/Users/thiennlinh/Documents/New project/shared")
 from config import settings
 from utils.qdrant_store import QdrantStore, init_qdrant, close_qdrant
 from routes.cache import cache_router
+from routes.chunks import router as chunks_router
 from routes.extract import extract_router
 from routes.rag import rag_router
 from routes.search import search_router
@@ -24,16 +25,15 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ===== Startup =====
-    print("🚀 Starting Query API...")
+    logging.info("🚀 Starting Query API...")
 
     # Initialize Qdrant
     await init_qdrant()
-    print("✅ Qdrant pool initialized")
+    logging.info("✅ Qdrant pool initialized")
 
     # Ensure collection exists
     try:
         qdrant = QdrantStore()
-        # Try a dummy search to trigger collection creation if needed
         from qdrant_client.http.models import Distance, VectorParams
 
         http_client = qdrant._get_http_client()
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
             if not any(
                 c.name == settings.qdrant_collection for c in collections.collections
             ):
-                print(
+                logging.info(
                     f"⚠️ Collection '{settings.qdrant_collection}' not found, creating..."
                 )
                 http_client.create_collection(
@@ -51,27 +51,39 @@ async def lifespan(app: FastAPI):
                         size=settings.embedding_dim, distance=Distance.COSINE
                     ),
                 )
-                print(f"✅ Created collection: {settings.qdrant_collection}")
+                logging.info(f"✅ Created collection: {settings.qdrant_collection}")
             else:
-                print(f"✅ Collection exists: {settings.qdrant_collection}")
+                logging.info(f"✅ Collection exists: {settings.qdrant_collection}")
         except Exception as e:
-            print(f"⚠️ Could not verify collection: {e}")
+            logging.info(f"⚠️ Could not verify collection: {e}")
     except Exception as e:
-        print(f"⚠️ Could not ensure collection: {e}")
+        logging.info(f"⚠️ Could not ensure collection: {e}")
 
-    print("✅ Query API startup complete")
+    # Model warmup: preload embedding model into memory
+    logging.info("🔥 Warming up embedding model...")
+    try:
+        from utils.embedding import embedder_factory
+
+        embedder = embedder_factory()
+        _ = embedder.embed_query("warmup query")
+        logging.info("✅ Embedding model warmed up")
+    except Exception as e:
+        logging.info(f"⚠️ Model warmup failed: {e}")
+
+    logging.info("✅ Query API startup complete")
 
     yield
 
     # ===== Shutdown =====
-    print("🛑 Shutting down Query API...")
+    logging.info("🛑 Shutting down Query API...")
     await close_qdrant()
-    print("✅ Query API shutdown complete")
-    print("🧹 Qdrant pool closed")
+    logging.info("✅ Query API shutdown complete")
+    logging.info("🧹 Qdrant pool closed")
 
 
 app = FastAPI(title="Query API", lifespan=lifespan)
 app.include_router(cache_router)
+app.include_router(chunks_router)
 app.include_router(extract_router)
 app.include_router(rag_router)
 app.include_router(search_router)

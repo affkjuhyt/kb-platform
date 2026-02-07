@@ -1,28 +1,117 @@
+"""
+Reranking utilities for query-api.
+Supports both local FlashRank and basic fallback reranking.
+"""
+
 from typing import List, Tuple
 import logging
 import time
+import os
 
 from config import settings
 
 logger = logging.getLogger("query-api.rerank")
 
+# Global reranker instances (lazy loaded)
+_flashrank_ranker = None
+_flashrank_failed = False
+
+_cross_encoder = None
+_cross_encoder_failed = False
+
+
+def get_local_reranker():
+    """Get or initialize the local FlashRank reranker."""
+    global _flashrank_ranker, _flashrank_failed
+
+    if _flashrank_failed:
+        return None
+
+    if _flashrank_ranker is None:
+        try:
+            from flashrank import Ranker
+
+            cache_dir = os.getenv("HF_HOME", "/models/hf")
+            model_name = getattr(settings, "rerank_model_local")
+            _flashrank_ranker = Ranker(model_name=model_name, cache_dir=cache_dir)
+            logger.info(f"✓ FlashRank Ranker ({model_name}) loaded locally")
+        except Exception as exc:
+            logger.warning(f"Failed to load FlashRank locally: {exc}")
+            _flashrank_failed = True
+            return None
+
+    return _flashrank_ranker
+
+
+def rerank_local(
+    query: str, candidates: List[Tuple[any, float]]
+) -> List[Tuple[any, float]]:
+    """
+    Rerank candidates using local FlashRank model.
+
+    Args:
+        query: Search query
+        candidates: List of (chunk, score) tuples
+
+    Returns:
+        Reranked list of (chunk, score) tuples
+    """
+    ranker = get_local_reranker()
+    if ranker is None:
+        logger.warning("FlashRank not available, returning original candidates")
+        return candidates
+
+    # Prepare passages for FlashRank
+    passages = [
+        {
+            "id": i,
+            "text": chunk.text,
+        }
+        for i, (chunk, _) in enumerate(candidates)
+    ]
+
+    # Rerank
+    results = ranker.rerank(query, passages)
+
+    # Map back to original candidates with new scores
+    reranked = []
+    for result in results:
+        idx = result["id"]
+        chunk, _ = candidates[idx]
+        reranked.append((chunk, result["score"]))
+
+    logger.info(
+        f"Reranked {len(candidates)} candidates locally, returning top {len(reranked)}"
+    )
+    return reranked
+
 
 def basic_rerank(query: str, texts: List[str]) -> List[float]:
+    """
+    Basic fallback reranking using simple text matching.
+
+    Args:
+        query: Search query
+        texts: List of text chunks
+
+    Returns:
+        List of scores
+    """
     start = time.perf_counter()
-    q_terms = set(query.lower().split())
+    query_lower = query.lower()
+    query_terms = set(query_lower.split())
+
     scores = []
     for text in texts:
-        t_terms = set(text.lower().split())
-        overlap = len(q_terms & t_terms)
-        scores.append(float(overlap))
+        # Use word-based overlap for more accurate scoring
+        text_terms = set(text.lower().split())
+        matches = len(query_terms & text_terms)
+        # Normalize by query length
+        score = matches / len(query_terms) if query_terms else 0.0
+        scores.append(score)
     duration = (time.perf_counter() - start) * 1000
     print(f"🧠 Basic rerank took {duration:.2f}ms for {len(texts)} texts")
     return scores
-
-
-logger = logging.getLogger("rerank")
-_cross_encoder = None
-_cross_encoder_failed = False
 
 
 def _get_cross_encoder():

@@ -18,6 +18,9 @@ from schema import SearchResponse, SearchRequest
 
 logger = logging.getLogger("query-api.service")
 
+# Persistent HTTP client for rerank service (connection pooling)
+_http_client = httpx.AsyncClient(timeout=10.0, limits=httpx.Limits(max_connections=100))
+
 
 async def _perform_search(payload: SearchRequest) -> SearchResponse:
     """Internal search logic without caching."""
@@ -31,7 +34,7 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
 
     # Step 1: Embedding
     start_embed = time.perf_counter()
-    vector = embedder.embed_query(payload.query)
+    vector = await asyncio.to_thread(embedder.embed_query, payload.query)
     embed_time = (time.perf_counter() - start_embed) * 1000
     print(f"⏱️ Embedding time: {embed_time:.2f}ms")
 
@@ -95,10 +98,30 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
 
     # Step 5: Reranking
     start_rerank = time.perf_counter()
-    if settings.rerank_backend == "service":
+
+    if settings.rerank_backend == "local":
+        # Local reranking with FlashRank (no network overhead)
+        from utils.rerank import rerank_local
+
         top = candidates[: settings.rerank_top_n]
         try:
-            resp = httpx.post(
+            candidates = (
+                rerank_local(payload.query, top) + candidates[settings.rerank_top_n :]
+            )
+        except Exception as e:
+            logger.warning("Local rerank failed: %s, falling back to basic", e)
+            top_chunks = [c for c, _ in top]
+            texts = [c.text for c in top_chunks]
+            scores = await asyncio.to_thread(basic_rerank, payload.query, texts)
+            candidates = (
+                list(zip(top_chunks, scores)) + candidates[settings.rerank_top_n :]
+            )
+
+    elif settings.rerank_backend == "service":
+        # Remote reranking via HTTP service
+        top = candidates[: settings.rerank_top_n]
+        try:
+            resp = await _http_client.post(
                 f"{settings.rerank_url}/rerank",
                 json={
                     "query": payload.query,
@@ -111,7 +134,6 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
                         for c, s in top
                     ],
                 },
-                timeout=5.0,
             )
             resp.raise_for_status()
             reranked = resp.json().get("results", [])
@@ -121,15 +143,16 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
             ] + candidates[settings.rerank_top_n :]
         except Exception as e:
             logger.warning("Rerank service failed: %s, falling back to basic", e)
-            texts = [c.text for c, _ in top]
-            scores = basic_rerank(payload.query, texts)
+            top_chunks = [c for c, _ in top]
+            texts = [c.text for c in top_chunks]
+            scores = await asyncio.to_thread(basic_rerank, payload.query, texts)
             candidates = (
-                list(zip([c for c, _ in top], scores))
-                + candidates[settings.rerank_top_n :]
+                list(zip(top_chunks, scores)) + candidates[settings.rerank_top_n :]
             )
+
     elif settings.rerank_backend == "basic":
         texts = [c.text for c, _ in candidates]
-        scores = basic_rerank(payload.query, texts)
+        scores = await asyncio.to_thread(basic_rerank, payload.query, texts)
         candidates = [(c, s) for (c, _), s in zip(candidates, scores)]
 
     # Force sorting after reranking to ensure top results are at the top

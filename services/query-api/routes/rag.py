@@ -1,21 +1,20 @@
 from services.service import _cached_rag
 from config import settings
 from schema import RAGRequest, RAGResponse
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from utils.security import get_tenant_context, TenantContext
 
 rag_router = APIRouter()
 
 
 @rag_router.post("/rag", response_model=RAGResponse)
-async def rag_query(payload: RAGRequest):
+async def rag_query(
+    payload: RAGRequest, auth: TenantContext = Depends(get_tenant_context)
+):
     """
     Perform RAG-based question answering with citations.
-
-    1. Searches for relevant context
-    2. Builds RAG prompt with citations
-    3. Calls LLM Gateway for answer generation
-    4. Returns answer with citations
     """
+    auth.validate_tenant(payload.tenant_id)
     temperature = payload.temperature or settings.rag_default_temperature
 
     if not settings.cache_enabled:
