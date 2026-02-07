@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_grpc_port: int = 6334
     qdrant_collection: str = "rag_chunks"
-    embedding_dim: int = 384
+    # FIXED: multilingual-e5-base produces 768-dimensional vectors, not 384
+    embedding_dim: int = 768
     embedding_backend: str = "sentence-transformers"
     embedding_model: str = "intfloat/multilingual-e5-base"
 
