@@ -237,7 +237,7 @@ class QueryCache:
             except Exception as e:
                 print(f"Query cache clear error: {e}")
 
-    def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         async with self._lock:
             return {
