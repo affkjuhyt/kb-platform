@@ -44,12 +44,13 @@ export default function LoginPage() {
         setLoading(true);
         try {
             // In a real implementation, this URL should be configured via environment variables
-            const response = await axios.post('http://localhost:8000/auth/token', new URLSearchParams({
-                username: values.username,
+            const response = await axios.post('/auth/login', {
+                email: values.username,
                 password: values.password,
-            }), {
+                tenant_id: "1"
+            }, {
                 headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Type': 'application/json',
                 },
             });
 

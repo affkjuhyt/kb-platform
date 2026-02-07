@@ -30,6 +30,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
 
+    const login = (newToken: string) => {
+        Cookies.set('token', newToken, { expires: 1 }); // 1 day
+        setToken(newToken);
+        const decoded: any = jwtDecode(newToken);
+        setUser({
+            id: decoded.sub,
+            email: decoded.email,
+            role: decoded.role,
+            tenant_id: decoded.tenant_id,
+        });
+        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+        router.push('/dashboard');
+    };
+
+    const logout = () => {
+        Cookies.remove('token');
+        setToken(null);
+        setUser(null);
+        delete axios.defaults.headers.common['Authorization'];
+        router.push('/login');
+    };
+
     useEffect(() => {
         const initAuth = () => {
             const storedToken = Cookies.get('token');
@@ -60,28 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         initAuth();
     }, []);
-
-    const login = (newToken: string) => {
-        Cookies.set('token', newToken, { expires: 1 }); // 1 day
-        setToken(newToken);
-        const decoded: any = jwtDecode(newToken);
-        setUser({
-            id: decoded.sub,
-            email: decoded.email,
-            role: decoded.role,
-            tenant_id: decoded.tenant_id,
-        });
-        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        router.push('/dashboard');
-    };
-
-    const logout = () => {
-        Cookies.remove('token');
-        setToken(null);
-        setUser(null);
-        delete axios.defaults.headers.common['Authorization'];
-        router.push('/login');
-    };
 
     // Protect routes
     useEffect(() => {
