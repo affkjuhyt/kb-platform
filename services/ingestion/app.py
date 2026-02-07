@@ -7,8 +7,9 @@ from datetime import datetime, UTC
 from typing import Any, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from pydantic import BaseModel, Field
+from typing import Annotated
 
 from config import settings
 from db import get_latest_doc, insert_document, mark_latest_false
@@ -167,6 +168,78 @@ def ingest_webhook(payload: IngestWebhookRequest):
         content_type=payload.content_type,
         data=data,
         metadata=payload.metadata,
+    )
+
+
+@app.post("/upload", response_model=IngestResponse)
+def ingest_upload(
+    file: UploadFile = File(..., description="File to upload (PDF, DOCX, TXT, etc.)"),
+    tenant_id: str = Form(..., description="Tenant ID"),
+    source: str = Form(..., description="Source identifier"),
+    source_id: str = Form(..., description="Unique document ID within source"),
+    metadata: Optional[str] = Form(None, description="JSON metadata (optional)"),
+):
+    """
+    Upload file directly via multipart/form-data.
+    
+    Supports: PDF, DOCX, TXT, MD, HTML files
+    
+    Example with curl:
+        curl -X POST http://localhost:8002/upload \
+          -F "file=@document.pdf" \
+          -F "tenant_id=company-a" \
+          -F "source=uploads" \
+          -F "source_id=doc-001"
+    """
+    # Read file content
+    try:
+        data = file.file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty file")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"failed to read file: {e}")
+    finally:
+        file.file.close()
+
+    # Determine content type
+    content_type = file.content_type
+    if not content_type:
+        # Try to guess from filename
+        filename = file.filename or ""
+        if filename.endswith(".pdf"):
+            content_type = "application/pdf"
+        elif filename.endswith(".docx"):
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif filename.endswith(".md"):
+            content_type = "text/markdown"
+        elif filename.endswith(".html") or filename.endswith(".htm"):
+            content_type = "text/html"
+        elif filename.endswith(".txt"):
+            content_type = "text/plain"
+        else:
+            content_type = "application/octet-stream"
+
+    # Parse metadata if provided
+    import json
+
+    meta_dict = {}
+    if metadata:
+        try:
+            meta_dict = json.loads(metadata)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="invalid metadata JSON")
+
+    # Add filename to metadata
+    meta_dict["filename"] = file.filename
+    meta_dict["content_type"] = content_type
+
+    return _store_and_record(
+        tenant_id=tenant_id,
+        source=source,
+        source_id=source_id,
+        content_type=content_type,
+        data=data,
+        metadata=meta_dict,
     )
 
 

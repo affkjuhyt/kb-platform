@@ -47,3 +47,30 @@ def get_chunks_by_doc(doc_id: str, section_path: str | None = None):
             stmt = stmt.where(ChunkRecord.section_path == section_path)
         rows = session.execute(stmt).scalars().all()
         return rows
+
+
+def get_chunks_by_source_id(
+    tenant_id: str, source: str, source_id: str, version: int | None = None
+):
+    """Get all chunks for a specific source_id.
+
+    Args:
+        tenant_id: Tenant ID
+        source: Source identifier
+        source_id: Document source ID
+        version: Optional specific version (if None, gets latest)
+
+    Returns:
+        List of ChunkRecord objects
+    """
+    with get_session() as session:
+        stmt = select(ChunkRecord).where(
+            ChunkRecord.tenant_id == tenant_id,
+            ChunkRecord.source == source,
+            ChunkRecord.source_id == source_id,
+        )
+        if version is not None:
+            stmt = stmt.where(ChunkRecord.version == version)
+        stmt = stmt.order_by(ChunkRecord.chunk_index)
+        rows = session.execute(stmt).scalars().all()
+        return rows
