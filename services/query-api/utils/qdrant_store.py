@@ -11,7 +11,6 @@ from qdrant_client.http.models import (
     Distance,
     VectorParams,
 )
-from qdrant_client.http.exceptions import UnexpectedResponse
 
 from config import settings
 
@@ -188,7 +187,6 @@ class QdrantStore:
             return results
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                print(f"⚠ Collection not found, attempting to create...")
                 client = self._get_client()
                 self._ensure_collection_exists(client)
                 # Retry

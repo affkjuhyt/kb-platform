@@ -1,9 +1,10 @@
+import httpx
+
 from utils.prompt_builder import build_rag_query_prompt
 from schema import RAGCitation, RAGResponse, CitationInfo, SearchResult
-from cache import cache_rag, cache_search
+from utils.cache import cache_rag, cache_search
 from utils.resolver import resolve_conflicts
 from utils.rerank import basic_rerank
-import httpx
 from db import get_chunks_by_ids
 from utils.fusion import rrf_fusion, weighted_fusion
 from utils.opensearch_store import OpenSearchStore

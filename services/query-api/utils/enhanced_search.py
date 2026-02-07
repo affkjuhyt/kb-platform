@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import OrderedDict
+from db import get_chunks_by_ids
 
 import redis
 
@@ -462,7 +463,6 @@ class EnhancedSearchEngine:
         top_k: int,
     ) -> List[dict]:
         """Fetch full chunk details for results."""
-        from db import get_chunks_by_ids
 
         id_pairs = []
         for r in results[:top_k]:
