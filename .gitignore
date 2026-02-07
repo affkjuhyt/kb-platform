@@ -42,3 +42,6 @@ yarn-error.log*
 tmp/
 temp/
 
+# Ignore all .pyc files
+*.pyc
+
