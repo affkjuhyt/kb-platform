@@ -1,9 +1,9 @@
-from datetime import datetime, UTC
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from db import get_chunks_by_source_id
+from utils.security import get_tenant_context, TenantContext
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -40,6 +40,7 @@ def get_chunks_by_source(
     version: Optional[int] = Query(
         None, description="Specific version (default: latest)"
     ),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """
     Get all chunks for a specific source_id.
@@ -51,6 +52,7 @@ def get_chunks_by_source(
         GET /chunks/source/acme-corp/uploads/contract-001
         GET /chunks/source/acme-corp/uploads/contract-001?version=2
     """
+    auth.validate_tenant(tenant_id)
     chunks = get_chunks_by_source_id(tenant_id, source, source_id, version)
 
     if not chunks:
@@ -86,7 +88,18 @@ def get_chunks_by_source(
     )
 
 
-@router.get("/source/{tenant_id}/{source}/{source_id}/text")
+class SourceTextResponse(BaseModel):
+    tenant_id: str
+    source: str
+    source_id: str
+    version: int
+    total_chunks: int
+    full_text: str
+
+
+@router.get(
+    "/source/{tenant_id}/{source}/{source_id}/text", response_model=SourceTextResponse
+)
 def get_source_text(
     tenant_id: str,
     source: str,
@@ -94,6 +107,7 @@ def get_source_text(
     version: Optional[int] = Query(
         None, description="Specific version (default: latest)"
     ),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """
     Get full text content for a specific source_id (all chunks concatenated).
@@ -101,6 +115,7 @@ def get_source_text(
     Example:
         GET /chunks/source/acme-corp/uploads/contract-001/text
     """
+    auth.validate_tenant(tenant_id)
     chunks = get_chunks_by_source_id(tenant_id, source, source_id, version)
 
     if not chunks:
@@ -109,16 +124,14 @@ def get_source_text(
             detail=f"No chunks found for source_id '{source_id}' in source '{source}' (tenant: {tenant_id})",
         )
 
-    # Sort by chunk_index to ensure correct order
-    chunks.sort(key=lambda x: x.chunk_index)
-
+    # The chunks are already sorted by chunk_index from the database query.
     full_text = "\n\n".join([c.text for c in chunks])
 
-    return {
-        "tenant_id": tenant_id,
-        "source": source,
-        "source_id": source_id,
-        "version": chunks[0].version,
-        "total_chunks": len(chunks),
-        "full_text": full_text,
-    }
+    return SourceTextResponse(
+        tenant_id=tenant_id,
+        source=source,
+        source_id=source_id,
+        version=chunks[0].version,
+        total_chunks=len(chunks),
+        full_text=full_text,
+    )

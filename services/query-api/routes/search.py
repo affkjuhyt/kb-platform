@@ -12,8 +12,9 @@ from schema import (
     SearchRequest,
     SearchResponse,
 )
+from fastapi import APIRouter, Depends
 from config import settings
-from fastapi import APIRouter
+from utils.security import get_tenant_context, TenantContext
 from utils.hyde import HyDESearchEngine, HyDEGenerator, HyDEEmbedder
 from utils.embedding import embedder_factory
 from utils.qdrant_store import QdrantStore
@@ -25,16 +26,24 @@ search_router = APIRouter()
 
 
 @search_router.post("/search", response_model=SearchResponse)
-async def search(payload: SearchRequest):
+async def search(
+    payload: SearchRequest, auth: TenantContext = Depends(get_tenant_context)
+):
+    tenant_id = payload.tenant_id or "default"
+    auth.validate_tenant(tenant_id)
+
     if not settings.cache_enabled:
         return await _perform_search(payload)
     top_k = payload.top_k or 10
-    return await _cached_search(payload.query, payload.tenant_id or "default", top_k)
+    return await _cached_search(payload.query, tenant_id, top_k)
 
 
 @search_router.post("/citations", response_model=CitationsResponse)
-def citations(payload: CitationsRequest):
-    rows = get_chunks_by_doc(payload.doc_id, payload.section_path)
+def citations(
+    payload: CitationsRequest, auth: TenantContext = Depends(get_tenant_context)
+):
+    auth.validate_tenant(payload.tenant_id)
+    rows = get_chunks_by_doc(payload.tenant_id, payload.doc_id, payload.section_path)
     citations = [
         Citation(
             doc_id=r.doc_id,
@@ -53,8 +62,13 @@ def citations(payload: CitationsRequest):
 
 
 @search_router.post("/search/enhanced", response_model=EnhancedSearchResponse)
-async def enhanced_search(payload: EnhancedSearchRequest):
+async def enhanced_search(
+    payload: EnhancedSearchRequest, auth: TenantContext = Depends(get_tenant_context)
+):
     """Perform enhanced search with HyDE and query decomposition."""
+    tenant_id = payload.tenant_id or "default"
+    auth.validate_tenant(tenant_id)
+
     engine = await get_enhanced_search_engine()
 
     result = await engine.search(
@@ -70,8 +84,12 @@ async def enhanced_search(payload: EnhancedSearchRequest):
 
 
 @search_router.post("/search/hyde")
-async def hyde_search(payload: HyDESearchRequest):
+async def hyde_search(
+    payload: HyDESearchRequest, auth: TenantContext = Depends(get_tenant_context)
+):
     """Search using HyDE (Hypothetical Document Embeddings)."""
+    tenant_id = payload.tenant_id or "default"
+    auth.validate_tenant(tenant_id)
     qdrant = QdrantStore()
     opensearch = OpenSearchStore()
     embedder = embedder_factory()

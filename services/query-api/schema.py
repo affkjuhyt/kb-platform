@@ -38,6 +38,7 @@ class SearchResponse(BaseModel):
 
 
 class CitationsRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1)
     doc_id: str = Field(..., min_length=1)
     section_path: Optional[str] = None
 

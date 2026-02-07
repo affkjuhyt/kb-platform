@@ -40,9 +40,11 @@ def get_chunks_by_ids(ids: list[tuple[str, int]]):
         return rows
 
 
-def get_chunks_by_doc(doc_id: str, section_path: str | None = None):
+def get_chunks_by_doc(tenant_id: str, doc_id: str, section_path: str | None = None):
     with get_session() as session:
-        stmt = select(ChunkRecord).where(ChunkRecord.doc_id == doc_id)
+        stmt = select(ChunkRecord).where(
+            ChunkRecord.tenant_id == tenant_id, ChunkRecord.doc_id == doc_id
+        )
         if section_path:
             stmt = stmt.where(ChunkRecord.section_path == section_path)
         rows = session.execute(stmt).scalars().all()

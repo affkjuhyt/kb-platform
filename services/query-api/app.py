@@ -25,11 +25,11 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ===== Startup =====
-    print("🚀 Starting Query API...")
+    logging.info("🚀 Starting Query API...")
 
     # Initialize Qdrant
     await init_qdrant()
-    print("✅ Qdrant pool initialized")
+    logging.info("✅ Qdrant pool initialized")
 
     # Ensure collection exists
     try:
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
             if not any(
                 c.name == settings.qdrant_collection for c in collections.collections
             ):
-                print(
+                logging.info(
                     f"⚠️ Collection '{settings.qdrant_collection}' not found, creating..."
                 )
                 http_client.create_collection(
@@ -51,34 +51,34 @@ async def lifespan(app: FastAPI):
                         size=settings.embedding_dim, distance=Distance.COSINE
                     ),
                 )
-                print(f"✅ Created collection: {settings.qdrant_collection}")
+                logging.info(f"✅ Created collection: {settings.qdrant_collection}")
             else:
-                print(f"✅ Collection exists: {settings.qdrant_collection}")
+                logging.info(f"✅ Collection exists: {settings.qdrant_collection}")
         except Exception as e:
-            print(f"⚠️ Could not verify collection: {e}")
+            logging.info(f"⚠️ Could not verify collection: {e}")
     except Exception as e:
-        print(f"⚠️ Could not ensure collection: {e}")
+        logging.info(f"⚠️ Could not ensure collection: {e}")
 
     # Model warmup: preload embedding model into memory
-    print("🔥 Warming up embedding model...")
+    logging.info("🔥 Warming up embedding model...")
     try:
         from utils.embedding import embedder_factory
 
         embedder = embedder_factory()
         _ = embedder.embed_query("warmup query")
-        print("✅ Embedding model warmed up")
+        logging.info("✅ Embedding model warmed up")
     except Exception as e:
-        print(f"⚠️ Model warmup failed: {e}")
+        logging.info(f"⚠️ Model warmup failed: {e}")
 
-    print("✅ Query API startup complete")
+    logging.info("✅ Query API startup complete")
 
     yield
 
     # ===== Shutdown =====
-    print("🛑 Shutting down Query API...")
+    logging.info("🛑 Shutting down Query API...")
     await close_qdrant()
-    print("✅ Query API shutdown complete")
-    print("🧹 Qdrant pool closed")
+    logging.info("✅ Query API shutdown complete")
+    logging.info("🧹 Qdrant pool closed")
 
 
 app = FastAPI(title="Query API", lifespan=lifespan)

@@ -32,9 +32,7 @@ def get_local_reranker():
             from flashrank import Ranker
 
             cache_dir = os.getenv("HF_HOME", "/models/hf")
-            model_name = getattr(
-                settings, "rerank_model_local", "ms-marco-MiniLM-L-12-v2"
-            )
+            model_name = getattr(settings, "rerank_model_local")
             _flashrank_ranker = Ranker(model_name=model_name, cache_dir=cache_dir)
             logger.info(f"✓ FlashRank Ranker ({model_name}) loaded locally")
         except Exception as exc:

@@ -6,20 +6,19 @@ from db import get_db_session
 from sqlalchemy.orm import Session
 from fastapi import Depends, APIRouter
 from utils.extraction import ExtractionService
+from utils.security import get_tenant_context, TenantContext
 
 extract_router = APIRouter()
 
 
 @extract_router.post("/extract", response_model=ExtractResult)
-def extract_data(payload: ExtractRequest):
+def extract_data(
+    payload: ExtractRequest, auth: TenantContext = Depends(get_tenant_context)
+):
     """
     Extract structured data from documents based on query and schema.
-
-    1. Searches for relevant context
-    2. Performs structured extraction
-    3. Validates against schema
-    4. Returns extracted data with confidence score
     """
+    auth.validate_tenant(payload.tenant_id)
     extraction_service = ExtractionService()
 
     result = extraction_service.extract_from_search(
@@ -42,10 +41,12 @@ def extract_data(payload: ExtractRequest):
 def create_extraction_job(
     payload: ExtractRequest,
     db: Session = Depends(get_db_session),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """
     Create an extraction job and save results to database.
     """
+    auth.validate_tenant(payload.tenant_id)
     storage_service = ExtractionStorageService(db)
 
     # Create job
@@ -108,6 +109,7 @@ def create_extraction_job(
 def get_extraction_job(
     job_id: str,
     db: Session = Depends(get_db_session),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """Get extraction job details and results."""
     from uuid import UUID
@@ -117,6 +119,8 @@ def get_extraction_job(
 
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    auth.validate_tenant(job.tenant_id)
 
     results = storage_service.get_job_results(UUID(job_id))
 
@@ -151,8 +155,10 @@ def list_extraction_jobs(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db_session),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """List extraction jobs for a tenant."""
+    auth.validate_tenant(tenant_id)
     storage_service = ExtractionStorageService(db)
     jobs = storage_service.list_jobs(tenant_id, status, limit, offset)
 
@@ -176,8 +182,10 @@ def get_extraction_stats(
     tenant_id: str,
     days: int = 30,
     db: Session = Depends(get_db_session),
+    auth: TenantContext = Depends(get_tenant_context),
 ):
     """Get extraction statistics for a tenant."""
+    auth.validate_tenant(tenant_id)
     storage_service = ExtractionStorageService(db)
     stats = storage_service.get_extraction_stats(tenant_id, days)
 

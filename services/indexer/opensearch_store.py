@@ -1,4 +1,5 @@
 from opensearchpy import OpenSearch
+from opensearchpy.helpers import bulk
 
 from config import settings
 
@@ -33,8 +34,6 @@ class OpenSearchStore:
 
     def bulk_index(self, chunks: list[tuple[str, dict]]) -> None:
         """Bulk index multiple chunks at once for better performance."""
-        from opensearchpy.helpers import bulk
-
         actions = [
             {
                 "_index": self._index,
