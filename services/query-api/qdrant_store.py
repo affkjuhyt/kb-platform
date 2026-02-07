@@ -3,7 +3,14 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+from qdrant_client.http.models import (
+    Filter,
+    FieldCondition,
+    MatchValue,
+    Distance,
+    VectorParams,
+)
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from config import settings
 
@@ -102,6 +109,30 @@ class QdrantStore:
 
         return Filter(must=must_conditions) if must_conditions else None
 
+    def _ensure_collection_exists(self, client: QdrantClient) -> None:
+        """Create collection if it doesn't exist."""
+        try:
+            collections = client.get_collections()
+            if any(
+                c.name == settings.qdrant_collection for c in collections.collections
+            ):
+                return
+        except Exception:
+            pass
+
+        try:
+            print(f"⚠ Collection '{settings.qdrant_collection}' not found, creating...")
+            client.create_collection(
+                collection_name=settings.qdrant_collection,
+                vectors_config=VectorParams(
+                    size=settings.embedding_dim, distance=Distance.COSINE
+                ),
+            )
+            print(f"✓ Created collection: {settings.qdrant_collection}")
+        except Exception as e:
+            print(f"❌ Failed to create collection: {e}")
+            raise
+
     def search(self, vector, limit: int, filters: dict = None):
         client = self._get_client()
         qdrant_filter = self._build_filter(filters)
@@ -115,16 +146,45 @@ class QdrantStore:
                     query_filter=qdrant_filter,
                     with_payload=True,
                 )
+        except UnexpectedResponse as e:
+            if "doesn't exist" in str(e):
+                print(f"⚠ Collection not found, attempting to create...")
+                self._ensure_collection_exists(client)
+                # Retry search
+                return client.search(
+                    collection_name=settings.qdrant_collection,
+                    query_vector=vector,
+                    limit=limit,
+                    query_filter=qdrant_filter,
+                    with_payload=True,
+                )
+            raise
         except Exception as e:
             print(f"⚠ gRPC search failed: {e}, falling back to HTTP")
 
-        return self._get_http_client().search(
-            collection_name=settings.qdrant_collection,
-            query_vector=vector,
-            limit=limit,
-            query_filter=qdrant_filter,
-            with_payload=True,
-        )
+        # HTTP fallback
+        http_client = self._get_http_client()
+        try:
+            return http_client.search(
+                collection_name=settings.qdrant_collection,
+                query_vector=vector,
+                limit=limit,
+                query_filter=qdrant_filter,
+                with_payload=True,
+            )
+        except UnexpectedResponse as e:
+            if "doesn't exist" in str(e):
+                print(f"⚠ Collection not found, attempting to create...")
+                self._ensure_collection_exists(http_client)
+                # Retry search
+                return http_client.search(
+                    collection_name=settings.qdrant_collection,
+                    query_vector=vector,
+                    limit=limit,
+                    query_filter=qdrant_filter,
+                    with_payload=True,
+                )
+            raise
 
     async def async_search(self, vector: List[float], limit: int, filters: dict = None):
         client = _pool.get_client()

@@ -87,7 +87,7 @@ def _create_consumer_with_retry(max_attempts: int = 30, sleep_seconds: float = 2
 def main() -> None:
     init_db()
     qdrant = QdrantStore()
-    qdrant.ensure_collection()
+    qdrant.ensure_collection_sync()  # Use sync version
     opensearch = OpenSearchStore()
     opensearch.ensure_index()
     embedder = embedder_factory()
@@ -107,6 +107,7 @@ def main() -> None:
             texts = [c.text for c in batch.chunks]
             vectors = embedder.embed(texts)
             import uuid
+
             # deterministic UUIDs per chunk for Qdrant
             ids = [
                 str(uuid.uuid5(uuid.NAMESPACE_URL, f"{batch.doc_id}:{c.chunk_index}"))

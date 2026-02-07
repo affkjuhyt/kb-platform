@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
@@ -11,48 +12,77 @@ from config import settings
 
 class QdrantConnectionPool:
     _instance: Optional["QdrantConnectionPool"] = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lock: threading.Lock = threading.Lock()
+    _async_lock: asyncio.Lock = asyncio.Lock()
 
     def __init__(self):
         self._client: Optional[QdrantClient] = None
         self._http_client: Optional[QdrantClient] = None
         self._use_grpc = True
+        self._initialized = False
 
-    async def initialize(self):
-        async with self._lock:
-            if self._client is not None:
+    def _initialize_sync(self):
+        """Synchronous initialization for non-async contexts."""
+        with self._lock:
+            if self._initialized:
                 return
 
-            grpc_port = getattr(settings, "qdrant_grpc_port", 6334)
-
             try:
-                self._client = QdrantClient(
-                    host="localhost",
-                    port=grpc_port,
-                    prefer_grpc=True,
-                    grpc_timeout=60,
-                    max_message_size=104857600,
-                )
+                # Try HTTP first (simpler, always works)
                 self._http_client = QdrantClient(
                     url=settings.qdrant_url,
                     timeout=30,
                 )
-                self._use_grpc = True
-                print(f"✓ Qdrant connected via gRPC (port {grpc_port})")
+
+                # Try gRPC if available
+                grpc_port = getattr(settings, "qdrant_grpc_port", 6334)
+                try:
+                    self._client = QdrantClient(
+                        host="localhost",
+                        port=grpc_port,
+                        prefer_grpc=True,
+                        grpc_timeout=60,
+                        max_message_size=104857600,
+                    )
+                    self._use_grpc = True
+                    print(f"✓ Qdrant connected via gRPC (port {grpc_port})")
+                except Exception as e:
+                    print(f"⚠ gRPC connection failed, using HTTP: {e}")
+                    self._client = self._http_client
+                    self._use_grpc = False
+
+                self._initialized = True
             except Exception as e:
-                print(f"⚠ gRPC connection failed, falling back to HTTP: {e}")
-                self._client = QdrantClient(url=settings.qdrant_url, timeout=30)
-                self._http_client = self._client
-                self._use_grpc = False
+                print(f"❌ Failed to initialize Qdrant connection: {e}")
+                raise
+
+    async def initialize(self):
+        """Async initialization."""
+        if self._initialized:
+            return
+
+        async with self._async_lock:
+            if self._initialized:
+                return
+
+            # Run sync initialization in thread pool
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._initialize_sync)
 
     def get_client(self) -> QdrantClient:
+        if not self._initialized:
+            self._initialize_sync()
         return self._client
 
     def get_http_client(self) -> QdrantClient:
+        if not self._initialized:
+            self._initialize_sync()
         return self._http_client
 
     @property
     def use_grpc(self) -> bool:
+        if not self._initialized:
+            self._initialize_sync()
         return self._use_grpc
 
     async def close(self):
@@ -65,8 +95,16 @@ class QdrantConnectionPool:
 _pool = QdrantConnectionPool()
 
 
-async def get_pool() -> QdrantConnectionPool:
-    if _pool._client is None:
+def get_pool() -> QdrantConnectionPool:
+    """Get or initialize the Qdrant connection pool (sync version)."""
+    if not _pool._initialized:
+        _pool._initialize_sync()
+    return _pool
+
+
+async def get_pool_async() -> QdrantConnectionPool:
+    """Get or initialize the Qdrant connection pool (async version)."""
+    if not _pool._initialized:
         await _pool.initialize()
     return _pool
 
@@ -74,6 +112,9 @@ async def get_pool() -> QdrantConnectionPool:
 class QdrantStore:
     def __init__(self, use_grpc: bool = None):
         self._use_grpc = use_grpc
+        # Ensure pool is initialized
+        if not _pool._initialized:
+            _pool._initialize_sync()
 
     def _get_client(self) -> QdrantClient:
         return _pool.get_client()
@@ -81,7 +122,8 @@ class QdrantStore:
     def _get_http_client(self) -> QdrantClient:
         return _pool.get_http_client()
 
-    async def ensure_collection(self) -> None:
+    def ensure_collection_sync(self) -> None:
+        """Synchronous version for non-async contexts."""
         client = self._get_http_client()
         try:
             collections = client.get_collections()
@@ -91,14 +133,24 @@ class QdrantStore:
                 return
         except UnexpectedResponse:
             pass
+        except Exception as e:
+            print(f"⚠ Warning checking collections: {e}")
 
-        client.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(
-                size=settings.embedding_dim, distance=Distance.COSINE
-            ),
-        )
-        print(f"✓ Created collection: {settings.qdrant_collection}")
+        try:
+            client.create_collection(
+                collection_name=settings.qdrant_collection,
+                vectors_config=VectorParams(
+                    size=settings.embedding_dim, distance=Distance.COSINE
+                ),
+            )
+            print(f"✓ Created collection: {settings.qdrant_collection}")
+        except Exception as e:
+            print(f"❌ Failed to create collection: {e}")
+            raise
+
+    async def ensure_collection(self) -> None:
+        """Async version."""
+        self.ensure_collection_sync()
 
     def upsert(
         self,
