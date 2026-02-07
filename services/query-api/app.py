@@ -7,13 +7,13 @@ import sys
 sys.path.insert(0, "/Users/thiennlinh/Documents/New project/shared")
 
 from config import settings
-from qdrant_store import QdrantStore
+from utils.qdrant_store import QdrantStore
 
 from routes.cache import cache_router
 from routes.extract import extract_router
 from routes.rag import rag_router
 from routes.search import search_router
-from qdrant_store import init_qdrant, close_qdrant
+from utils.qdrant_store import init_qdrant, close_qdrant
 from contextlib import asynccontextmanager
 
 

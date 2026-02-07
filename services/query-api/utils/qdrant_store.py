@@ -1,6 +1,8 @@
 import asyncio
 from typing import List, Optional
+from dataclasses import dataclass
 
+import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     Filter,
@@ -12,6 +14,15 @@ from qdrant_client.http.models import (
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from config import settings
+
+
+@dataclass
+class ScoredPoint:
+    """Compatible result object for search results."""
+
+    id: str
+    score: float
+    payload: dict
 
 
 class QdrantConnectionPool:
@@ -28,27 +39,16 @@ class QdrantConnectionPool:
             if self._client is not None:
                 return
 
-            grpc_port = getattr(settings, "qdrant_grpc_port", 6334)
-
-            try:
-                self._client = QdrantClient(
-                    host="localhost",
-                    port=grpc_port,
-                    prefer_grpc=True,
-                    grpc_timeout=60,
-                    max_message_size=104857600,
-                )
-                self._http_client = QdrantClient(
-                    url=settings.qdrant_url,
-                    timeout=30,
-                )
-                self._use_grpc = True
-                print(f"✓ Qdrant connected via gRPC (port {grpc_port})")
-            except Exception as e:
-                print(f"⚠ gRPC connection failed, falling back to HTTP: {e}")
-                self._client = QdrantClient(url=settings.qdrant_url, timeout=30)
-                self._http_client = self._client
-                self._use_grpc = False
+            # Force HTTP mode for compatibility with Qdrant server v1.9.1
+            # The gRPC API in client v1.16.2 is not compatible with server v1.9.1
+            self._client = QdrantClient(
+                url=settings.qdrant_url,
+                timeout=60,
+                prefer_grpc=False,
+            )
+            self._http_client = self._client
+            self._use_grpc = False
+            print(f"✓ Qdrant connected via HTTP ({settings.qdrant_url})")
 
     def get_client(self) -> QdrantClient:
         return self._client
@@ -80,14 +80,26 @@ class QdrantStore:
     def __init__(self, use_grpc: bool = None):
         self._use_grpc = use_grpc
 
-    def _get_client(self) -> QdrantClient:
+    def _ensure_initialized(self):
+        """Lazily initialize the pool synchronously if not already done."""
         if _pool._client is None:
-            raise RuntimeError("Qdrant pool not initialized. Call init_qdrant() first.")
+            # Force HTTP mode for compatibility with Qdrant server v1.9.1
+            # The gRPC API in client v1.16.2 is not compatible with server v1.9.1
+            _pool._client = QdrantClient(
+                url=settings.qdrant_url,
+                timeout=60,
+                prefer_grpc=False,
+            )
+            _pool._http_client = _pool._client
+            _pool._use_grpc = False
+            print(f"✓ Qdrant lazy-initialized via HTTP ({settings.qdrant_url})")
+
+    def _get_client(self) -> QdrantClient:
+        self._ensure_initialized()
         return _pool._client
 
     def _get_http_client(self) -> QdrantClient:
-        if _pool._http_client is None:
-            raise RuntimeError("Qdrant pool not initialized. Call init_qdrant() first.")
+        self._ensure_initialized()
         return _pool._http_client
 
     def _build_filter(self, filters: dict = None):
@@ -133,103 +145,95 @@ class QdrantStore:
             raise
 
     def search(self, vector, limit: int, filters: dict = None):
-        client = self._get_client()
-        qdrant_filter = self._build_filter(filters)
+        """Search using direct HTTP REST API for Qdrant v1.9.1 compatibility."""
+        self._ensure_initialized()
+
+        # Build request body for Qdrant v1.9.1 REST API
+        body = {
+            "vector": vector if isinstance(vector, list) else vector.tolist(),
+            "limit": limit,
+            "with_payload": True,
+        }
+
+        # Add filter if provided
+        if filters:
+            must_conditions = []
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    for v in value:
+                        must_conditions.append({"key": key, "match": {"value": v}})
+                else:
+                    must_conditions.append({"key": key, "match": {"value": value}})
+            if must_conditions:
+                body["filter"] = {"must": must_conditions}
+
+        # Make direct HTTP request to Qdrant REST API
+        url = f"{settings.qdrant_url}/collections/{settings.qdrant_collection}/points/search"
 
         try:
-            if self._use_grpc if self._use_grpc is not None else _pool.use_grpc:
-                return client.search(
-                    collection_name=settings.qdrant_collection,
-                    query_vector=vector,
-                    limit=limit,
-                    query_filter=qdrant_filter,
-                    with_payload=True,
+            response = httpx.post(url, json=body, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+
+            # Convert response to ScoredPoint objects
+            results = []
+            for hit in data.get("result", []):
+                results.append(
+                    ScoredPoint(
+                        id=str(hit.get("id", "")),
+                        score=float(hit.get("score", 0.0)),
+                        payload=hit.get("payload", {}),
+                    )
                 )
-        except UnexpectedResponse as e:
-            if "doesn't exist" in str(e):
+            return results
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
                 print(f"⚠ Collection not found, attempting to create...")
+                client = self._get_client()
                 self._ensure_collection_exists(client)
-                # Retry search
-                return client.search(
-                    collection_name=settings.qdrant_collection,
-                    query_vector=vector,
-                    limit=limit,
-                    query_filter=qdrant_filter,
-                    with_payload=True,
-                )
+                # Retry
+                response = httpx.post(url, json=body, timeout=60)
+                response.raise_for_status()
+                data = response.json()
+                results = []
+                for hit in data.get("result", []):
+                    results.append(
+                        ScoredPoint(
+                            id=str(hit.get("id", "")),
+                            score=float(hit.get("score", 0.0)),
+                            payload=hit.get("payload", {}),
+                        )
+                    )
+                return results
             raise
         except Exception as e:
-            print(f"⚠ gRPC search failed: {e}, falling back to HTTP")
-
-        # HTTP fallback
-        http_client = self._get_http_client()
-        try:
-            return http_client.search(
-                collection_name=settings.qdrant_collection,
-                query_vector=vector,
-                limit=limit,
-                query_filter=qdrant_filter,
-                with_payload=True,
-            )
-        except UnexpectedResponse as e:
-            if "doesn't exist" in str(e):
-                print(f"⚠ Collection not found, attempting to create...")
-                self._ensure_collection_exists(http_client)
-                # Retry search
-                return http_client.search(
-                    collection_name=settings.qdrant_collection,
-                    query_vector=vector,
-                    limit=limit,
-                    query_filter=qdrant_filter,
-                    with_payload=True,
-                )
+            print(f"⚠ Search failed: {e}")
             raise
 
     async def async_search(self, vector: List[float], limit: int, filters: dict = None):
+        self._ensure_initialized()
         client = _pool.get_client()
         qdrant_filter = self._build_filter(filters)
 
         try:
             results = await asyncio.to_thread(
-                client.search,
+                client.query_points,
                 collection_name=settings.qdrant_collection,
-                query_vector=vector,
+                query=vector,
                 limit=limit,
                 query_filter=qdrant_filter,
                 with_payload=True,
             )
-            return results
+            return results.points
         except Exception as e:
             print(f"⚠ Async search failed: {e}")
-            return self._get_http_client().search(
-                collection_name=settings.qdrant_collection,
-                query_vector=vector,
-                limit=limit,
-                query_filter=qdrant_filter,
-                with_payload=True,
-            )
+            raise
 
     async def batch_search(
         self, queries: List[List[float]], limit: int, filters: List[dict] = None
     ) -> List[List]:
-        client = _pool.get_client()
-
-        try:
-            if _pool.use_grpc:
-                qdrant_filters = [
-                    self._build_filter(f) for f in (filters or [None] * len(queries))
-                ]
-                results = client.search_batch(
-                    collection_name=settings.qdrant_collection,
-                    query_vectors=queries,
-                    limit=limit,
-                    query_filters=qdrant_filters,
-                    with_payload=True,
-                )
-                return results
-        except Exception as e:
-            print(f"⚠ gRPC batch search failed: {e}")
-
+        """Batch search using individual query_points calls."""
+        self._ensure_initialized()
         results = []
         for query, filter_dict in zip(queries, filters or [None] * len(queries)):
             result = await self.async_search(query, limit, filter_dict)

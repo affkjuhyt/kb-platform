@@ -1,3 +1,4 @@
+from utils.prompt_builder import build_rag_query_prompt
 from schema import RAGCitation, RAGResponse, CitationInfo, SearchResult
 from cache import cache_rag, cache_search
 from utils.resolver import resolve_conflicts
