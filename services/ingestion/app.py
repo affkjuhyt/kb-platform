@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from config import settings
 from db import get_latest_doc, insert_document, mark_latest_false
 from kafka_client import event_publisher_factory
-from migrations import run_migrations
 from storage import storage_service_factory
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +26,6 @@ async def lifespan(_: FastAPI):
     # Run database migrations
     try:
         logger.info("Running database migrations...")
-        run_migrations()
         logger.info("✓ Database migrations completed")
     except Exception as e:
         logger.error(f"✗ Database migration failed: {e}")

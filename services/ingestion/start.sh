@@ -64,10 +64,6 @@ export RAG_MINIO_BUCKET="raw-docs"
 export RAG_KAFKA_BROKERS="localhost:9092"
 export RAG_KAFKA_TOPIC="ingestion.events"
 
-# Run migrations
-echo -e "${YELLOW}Running database migrations...${NC}"
-python3 -c "from migrations import run_migrations; run_migrations()"
-
 # Ensure MinIO bucket exists
 echo -e "${YELLOW}Ensuring MinIO bucket exists...${NC}"
 python3 -c "from storage import storage_service_factory; storage_service_factory().ensure_bucket()"
