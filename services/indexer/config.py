@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     service_port: int = 8000
 
-    chunk_method: str = "sentence"  # sentence | semantic | markdown
+    chunk_method: str = "semantic"  # sentence | semantic | markdown
     chunk_max_chars: int = 1200
     chunk_overlap_chars: int = 200
     chunk_min_chars: int = 200

@@ -1,6 +1,6 @@
 import base64
 import requests
-from typing import Optional
+from typing import Optional, List
 from fastapi import Form, File, UploadFile, HTTPException, APIRouter
 
 from service import _store_and_record
@@ -34,55 +34,29 @@ def ingest_webhook(payload: IngestWebhookRequest):
     )
 
 
-@ingest_router.post("/upload", response_model=IngestResponse)
+@ingest_router.post("/upload", response_model=List[IngestResponse])
 def ingest_upload(
-    file: UploadFile = File(..., description="File to upload (PDF, DOCX, TXT, etc.)"),
+    files: List[UploadFile] = File(
+        ..., description="Files to upload (PDF, DOCX, TXT, etc.)"
+    ),
     tenant_id: str = Form(..., description="Tenant ID"),
     source: str = Form(..., description="Source identifier"),
-    source_id: str = Form(..., description="Unique document ID within source"),
+    source_id: Optional[str] = Form(
+        None, description="Unique document ID (defaults to filename if multiple files)"
+    ),
     metadata: Optional[str] = Form(None, description="JSON metadata (optional)"),
 ):
     """
-    Upload file directly via multipart/form-data.
+    Upload one or more files directly via multipart/form-data.
     
-    Supports: PDF, DOCX, TXT, MD, HTML files
-    
-    Example with curl:
+    Example with curl (multiple files):
         curl -X POST http://localhost:8002/upload \
-          -F "file=@document.pdf" \
+          -F "files=@doc1.pdf" \
+          -F "files=@doc2.txt" \
           -F "tenant_id=company-a" \
-          -F "source=uploads" \
-          -F "source_id=doc-001"
+          -F "source=uploads"
     """
-    # Read file content
-    try:
-        data = file.file.read()
-        if not data:
-            raise HTTPException(status_code=400, detail="empty file")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"failed to read file: {e}")
-    finally:
-        file.file.close()
-
-    # Determine content type
-    content_type = file.content_type
-    if not content_type:
-        # Try to guess from filename
-        filename = file.filename or ""
-        if filename.endswith(".pdf"):
-            content_type = "application/pdf"
-        elif filename.endswith(".docx"):
-            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        elif filename.endswith(".md"):
-            content_type = "text/markdown"
-        elif filename.endswith(".html") or filename.endswith(".htm"):
-            content_type = "text/html"
-        elif filename.endswith(".txt"):
-            content_type = "text/plain"
-        else:
-            content_type = "application/octet-stream"
-
-    # Parse metadata if provided
+    responses = []
     import json
 
     meta_dict = {}
@@ -92,18 +66,65 @@ def ingest_upload(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="invalid metadata JSON")
 
-    # Add filename to metadata
-    meta_dict["filename"] = file.filename
-    meta_dict["content_type"] = content_type
+    for file in files:
+        # Read file content
+        try:
+            data = file.file.read()
+            if not data:
+                print(f"Skipping empty file: {file.filename}")
+                continue
+        except Exception as e:
+            print(f"Failed to read file {file.filename}: {e}")
+            continue
+        finally:
+            file.file.close()
 
-    return _store_and_record(
-        tenant_id=tenant_id,
-        source=source,
-        source_id=source_id,
-        content_type=content_type,
-        data=data,
-        metadata=meta_dict,
-    )
+        # Determine content type
+        content_type = file.content_type
+        if not content_type:
+            filename = file.filename or ""
+            if filename.endswith(".pdf"):
+                content_type = "application/pdf"
+            elif filename.endswith(".docx"):
+                content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            elif filename.endswith(".md"):
+                content_type = "text/markdown"
+            elif filename.endswith(".html") or filename.endswith(".htm"):
+                content_type = "text/html"
+            elif filename.endswith(".txt"):
+                content_type = "text/plain"
+            else:
+                content_type = "application/octet-stream"
+
+        # Logic for source_id:
+        # 1. If multiple files are uploaded, we use the filename as source_id to avoid overwriting.
+        # 2. If one file is uploaded and source_id is provided, use it.
+        # 3. If no source_id provided, use filename.
+        effective_source_id = source_id
+        if len(files) > 1 or not source_id:
+            effective_source_id = file.filename
+
+        # Copy metadata for this specific file
+        file_meta = meta_dict.copy()
+        file_meta["filename"] = file.filename
+        file_meta["content_type"] = content_type
+
+        resp = _store_and_record(
+            tenant_id=tenant_id,
+            source=source,
+            source_id=effective_source_id,
+            content_type=content_type,
+            data=data,
+            metadata=file_meta,
+        )
+        responses.append(resp)
+
+    if not responses and files:
+        raise HTTPException(
+            status_code=400, detail="No files were successfully processed"
+        )
+
+    return responses
 
 
 @ingest_router.post("/pull", response_model=IngestResponse)

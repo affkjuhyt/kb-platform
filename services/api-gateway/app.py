@@ -12,12 +12,9 @@ Features:
 
 import time
 import uuid
-import hashlib
-import hmac
-import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 from functools import wraps
 
 from fastapi import FastAPI, HTTPException, Request, Depends, status, Security
@@ -25,7 +22,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 import httpx
 import redis
 from jose import JWTError, jwt

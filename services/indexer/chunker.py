@@ -134,32 +134,64 @@ def _chunk_semantic(
     text: str, heading_path: List[str], chunks: List[Chunk], index: int
 ) -> int:
     """
-    Semantic chunking using embeddings.
-
-    Uses SemanticChunker from langchain-experimental when available,
-    falls back to embedding-based clustering.
+    Semantic chunking using FastEmbed for breakpoint detection.
+    Faster and more consistent with our embedding infrastructure.
     """
     try:
-        from langchain_experimental.text_splitter import SemanticChunker
-        from sentence_transformers import SentenceTransformer
+        from embedding import embedder_factory
 
-        embedder_name = getattr(
-            settings, "semantic_embedder_name", settings.embedding_model
-        )
-        embedder = SentenceTransformer(embedder_name)
+        embedder = embedder_factory()
+
+        # Split into sentences first
+        sentences = _split_units(text)
+        if len(sentences) <= 1:
+            return _chunk_sentence(text, heading_path, chunks, index)
+
+        # Get embeddings for each sentence to find breakpoints
+        embeddings = embedder.embed(sentences)
+
+        import numpy as np
+
+        def cosine_sim(v1, v2):
+            return float(
+                np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-8)
+            )
 
         threshold = getattr(settings, "semantic_chunk_threshold", 0.7)
+        max_chars = settings.chunk_max_chars
 
-        semantic_chunker = SemanticChunker(
-            breakpoint_threshold_type="percentile",
-            breakpoint_threshold_amount=threshold,
-            embeddings=embedder,
-        )
+        current_sentences = [sentences[0]]
+        for i in range(1, len(sentences)):
+            # Compare current sentence with the pool of sentences in the current chunk
+            # or just the previous one for efficiency. Here we use previous one for speed.
+            sim = cosine_sim(embeddings[i - 1], embeddings[i])
 
-        semantic_chunks = semantic_chunker.create_documents([text])
+            combined_len = (
+                sum(len(s) for s in current_sentences) + len(sentences[i]) + 1
+            )
 
-        for doc in semantic_chunks:
-            chunk_text = doc.page_content.strip()
+            # Break if similarity is low OR chunk gets too large
+            if sim < threshold or combined_len > max_chars:
+                chunk_text = " ".join(current_sentences).strip()
+                if len(chunk_text) >= settings.chunk_min_chars:
+                    chunks.append(
+                        Chunk(
+                            text=chunk_text,
+                            heading_path=heading_path,
+                            section_path=" > ".join(heading_path),
+                            index=index,
+                            start=0,
+                            end=len(chunk_text),
+                        )
+                    )
+                    index += 1
+                current_sentences = [sentences[i]]
+            else:
+                current_sentences.append(sentences[i])
+
+        # Add last piece
+        if current_sentences:
+            chunk_text = " ".join(current_sentences).strip()
             if len(chunk_text) >= settings.chunk_min_chars:
                 chunks.append(
                     Chunk(
@@ -172,14 +204,8 @@ def _chunk_semantic(
                     )
                 )
                 index += 1
-
         return index
 
-    except ImportError:
-        print(
-            "langchain-experimental not installed, using embedding-based semantic chunking"
-        )
-        return _chunk_semantic_fallback(text, heading_path, chunks, index)
     except Exception as e:
         print(f"Semantic chunking failed: {e}, falling back to sentence chunking")
         return _chunk_sentence(text, heading_path, chunks, index)

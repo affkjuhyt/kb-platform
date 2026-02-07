@@ -229,6 +229,8 @@ services:
       HF_HOME: /models/hf
       TRANSFORMERS_CACHE: /models/hf
       SENTENCE_TRANSFORMERS_HOME: /models/hf
+      HF_HUB_DISABLE_SYMLINKS: "true"
+      FASTEMBED_CACHE_DIR: /models/hf
     volumes:
       - model_cache:/models
     ports:
@@ -280,6 +282,8 @@ services:
       HF_HOME: /models/hf
       TRANSFORMERS_CACHE: /models/hf
       SENTENCE_TRANSFORMERS_HOME: /models/hf
+      HF_HUB_DISABLE_SYMLINKS: "true"
+      FASTEMBED_CACHE_DIR: /models/hf
     volumes:
       - model_cache:/models
     depends_on:
@@ -326,6 +330,8 @@ services:
       HF_HOME: /models/hf
       TRANSFORMERS_CACHE: /models/hf
       SENTENCE_TRANSFORMERS_HOME: /models/hf
+      HF_HUB_DISABLE_SYMLINKS: "true"
+      FASTEMBED_CACHE_DIR: /models/hf
     volumes:
       - model_cache:/models
     ports:
@@ -392,6 +398,7 @@ services:
       HF_HOME: /models/hf
       TRANSFORMERS_CACHE: /models/hf
       SENTENCE_TRANSFORMERS_HOME: /models/hf
+      HF_HUB_DISABLE_SYMLINKS: "true"
     volumes:
       - model_cache:/models
     ports:
