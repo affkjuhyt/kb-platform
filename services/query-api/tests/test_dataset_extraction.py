@@ -7,7 +7,7 @@ Target: ≥80% extraction success rate
 
 import json
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 
 @dataclass

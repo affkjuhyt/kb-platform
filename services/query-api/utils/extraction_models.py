@@ -2,9 +2,6 @@
 Database models for storing structured extraction data.
 """
 
-from datetime import datetime
-from typing import Optional
-
 from sqlalchemy import (
     Column,
     DateTime,

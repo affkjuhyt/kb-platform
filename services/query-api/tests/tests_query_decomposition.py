@@ -9,9 +9,7 @@ Tests cover:
 """
 
 import pytest
-import asyncio
 from unittest.mock import Mock, patch, AsyncMock
-from typing import List
 
 import sys
 

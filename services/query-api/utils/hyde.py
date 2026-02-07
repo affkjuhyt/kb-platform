@@ -10,9 +10,8 @@ Reference: https://arxiv.org/abs/2212.10496
 """
 
 import hashlib
-import json
 import httpx
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Tuple, Dict
 from dataclasses import dataclass
 
 from config import settings

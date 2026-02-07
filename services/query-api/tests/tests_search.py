@@ -1,4 +1,4 @@
-from app import SearchRequest
+from schema import SearchRequest
 
 
 def test_search_request_validation():

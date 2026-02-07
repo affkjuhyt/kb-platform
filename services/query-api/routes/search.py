@@ -1,18 +1,25 @@
 from schema import HyDESearchRequest
 from db import get_chunks_by_doc
-from services.service import _cached_search
-from services.service import _perform_search
-from schema import DecomposeRequest
-from schema import DecomposeResponse
-from schema import EnhancedSearchRequest
-from schema import EnhancedSearchResponse
-from schema import Citation
-from schema import CitationsRequest
-from schema import CitationsResponse
+from services.service import _cached_search, _perform_search
+from schema import (
+    DecomposeRequest,
+    DecomposeResponse,
+    EnhancedSearchRequest,
+    EnhancedSearchResponse,
+    Citation,
+    CitationsRequest,
+    CitationsResponse,
+    SearchRequest,
+    SearchResponse,
+)
 from config import settings
-from schema import SearchRequest
-from schema import SearchResponse
 from fastapi import APIRouter
+from utils.hyde import HyDESearchEngine, HyDEGenerator, HyDEEmbedder
+from utils.embedding import embedder_factory
+from utils.qdrant_store import QdrantStore
+from utils.opensearch_store import OpenSearchStore
+from utils.query_decomposition import QueryDecomposer
+from utils.enhanced_search import get_enhanced_search_engine
 
 search_router = APIRouter()
 
@@ -45,14 +52,9 @@ def citations(payload: CitationsRequest):
     )
 
 
-# ============================================================================
-# Enhanced Search Endpoints (HyDE, Query Decomposition, Advanced Caching)
-# ============================================================================
 @search_router.post("/search/enhanced", response_model=EnhancedSearchResponse)
 async def enhanced_search(payload: EnhancedSearchRequest):
     """Perform enhanced search with HyDE and query decomposition."""
-    from enhanced_search import get_enhanced_search_engine
-
     engine = await get_enhanced_search_engine()
 
     result = await engine.search(
@@ -70,11 +72,6 @@ async def enhanced_search(payload: EnhancedSearchRequest):
 @search_router.post("/search/hyde")
 async def hyde_search(payload: HyDESearchRequest):
     """Search using HyDE (Hypothetical Document Embeddings)."""
-    from hyde import HyDESearchEngine, HyDEGenerator, HyDEEmbedder
-    from embedding import embedder_factory
-    from qdrant_store import QdrantStore
-    from opensearch_store import OpenSearchStore
-
     qdrant = QdrantStore()
     opensearch = OpenSearchStore()
     embedder = embedder_factory()
@@ -107,8 +104,6 @@ async def hyde_search(payload: HyDESearchRequest):
 @search_router.post("/query/decompose", response_model=DecomposeResponse)
 async def decompose_query(payload: DecomposeRequest):
     """Decompose a complex query into simpler sub-queries."""
-    from query_decomposition import QueryDecomposer
-
     decomposer = QueryDecomposer()
     result = await decomposer.decompose(payload.query)
 

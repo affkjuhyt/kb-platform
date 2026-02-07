@@ -2,7 +2,7 @@
 Storage service for extraction results and RAG conversations.
 """
 
-import json
+from sqlalchemy import Integer
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
