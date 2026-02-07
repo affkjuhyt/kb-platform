@@ -31,6 +31,7 @@ async def search(
 ):
     tenant_id = payload.tenant_id or "default"
     auth.validate_tenant(tenant_id)
+    payload.tenant_id = tenant_id
 
     if not settings.cache_enabled:
         return await _perform_search(payload)
@@ -68,6 +69,7 @@ async def enhanced_search(
     """Perform enhanced search with HyDE and query decomposition."""
     tenant_id = payload.tenant_id or "default"
     auth.validate_tenant(tenant_id)
+    payload.tenant_id = tenant_id
 
     engine = await get_enhanced_search_engine()
 
@@ -90,6 +92,8 @@ async def hyde_search(
     """Search using HyDE (Hypothetical Document Embeddings)."""
     tenant_id = payload.tenant_id or "default"
     auth.validate_tenant(tenant_id)
+    payload.tenant_id = tenant_id
+
     qdrant = QdrantStore()
     opensearch = OpenSearchStore()
     embedder = embedder_factory()

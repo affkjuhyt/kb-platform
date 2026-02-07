@@ -103,9 +103,9 @@ def basic_rerank(query: str, texts: List[str]) -> List[float]:
 
     scores = []
     for text in texts:
-        text_lower = text.lower()
-        # Simple scoring: count matching terms
-        matches = sum(1 for term in query_terms if term in text_lower)
+        # Use word-based overlap for more accurate scoring
+        text_terms = set(text.lower().split())
+        matches = len(query_terms & text_terms)
         # Normalize by query length
         score = matches / len(query_terms) if query_terms else 0.0
         scores.append(score)

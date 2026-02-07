@@ -110,11 +110,11 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
             )
         except Exception as e:
             logger.warning("Local rerank failed: %s, falling back to basic", e)
-            texts = [c.text for c, _ in top]
+            top_chunks = [c for c, _ in top]
+            texts = [c.text for c in top_chunks]
             scores = await asyncio.to_thread(basic_rerank, payload.query, texts)
             candidates = (
-                list(zip([c for c, _ in top], scores))
-                + candidates[settings.rerank_top_n :]
+                list(zip(top_chunks, scores)) + candidates[settings.rerank_top_n :]
             )
 
     elif settings.rerank_backend == "service":
@@ -143,11 +143,11 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
             ] + candidates[settings.rerank_top_n :]
         except Exception as e:
             logger.warning("Rerank service failed: %s, falling back to basic", e)
-            texts = [c.text for c, _ in top]
+            top_chunks = [c for c, _ in top]
+            texts = [c.text for c in top_chunks]
             scores = await asyncio.to_thread(basic_rerank, payload.query, texts)
             candidates = (
-                list(zip([c for c, _ in top], scores))
-                + candidates[settings.rerank_top_n :]
+                list(zip(top_chunks, scores)) + candidates[settings.rerank_top_n :]
             )
 
     elif settings.rerank_backend == "basic":
