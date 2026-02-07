@@ -6,15 +6,15 @@ from typing import Optional, List
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from chunker import (
+from services.chunker import (
     chunk_document,
     get_chunking_stats,
     _chunk_sentence,
     _chunk_semantic,
     _chunk_markdown,
 )
-from parsers import parse_content
-from schemas import ChunkPayload
+from utils.parsers import parse_content
+from schema.events import ChunkPayload
 from config import settings
 
 app = FastAPI(title="Indexer Service")

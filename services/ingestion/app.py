@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, UTC
 from fastapi import FastAPI
 
-from routes import ingest_router
+from routes.ingestion import ingest_router
 from utils.storage import storage_service_factory
 
 logging.basicConfig(level=logging.INFO)

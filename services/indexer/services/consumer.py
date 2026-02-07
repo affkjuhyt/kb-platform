@@ -2,16 +2,16 @@ import logging
 import time
 from kafka.errors import NoBrokersAvailable
 
-from chunker import chunk_document
+from services.chunker import chunk_document
 from config import settings
 from db import init_db, insert_chunks
-from embedding import embedder_factory
-from opensearch_store import OpenSearchStore
-from qdrant_store import QdrantStore
-from kafka_client import consumer_factory, publisher_factory
-from parsers import parse_content
-from schemas import ChunkBatch, ChunkPayload
-from storage import storage_service_factory
+from services.embedding import embedder_factory
+from utils.opensearch_store import OpenSearchStore
+from utils.qdrant_store import QdrantStore
+from utils.kafka_client import consumer_factory, publisher_factory
+from utils.parsers import parse_content
+from schema.events import ChunkBatch, ChunkPayload
+from utils.storage import storage_service_factory
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("indexer-consumer")

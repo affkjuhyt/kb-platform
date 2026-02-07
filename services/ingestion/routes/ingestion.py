@@ -3,8 +3,8 @@ import requests
 from typing import Optional, List
 from fastapi import Form, File, UploadFile, HTTPException, APIRouter
 
-from service import _store_and_record
-from schema import IngestWebhookRequest, IngestResponse, IngestPullRequest
+from services.ingestion import _store_and_record
+from schema.requests import IngestWebhookRequest, IngestResponse, IngestPullRequest
 
 ingest_router = APIRouter()
 
