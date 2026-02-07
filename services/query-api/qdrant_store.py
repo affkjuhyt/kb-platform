@@ -75,10 +75,14 @@ class QdrantStore:
         self._use_grpc = use_grpc
 
     def _get_client(self) -> QdrantClient:
-        return _pool.get_client()
+        if _pool._client is None:
+            raise RuntimeError("Qdrant pool not initialized. Call init_qdrant() first.")
+        return _pool._client
 
     def _get_http_client(self) -> QdrantClient:
-        return _pool.get_http_client()
+        if _pool._http_client is None:
+            raise RuntimeError("Qdrant pool not initialized. Call init_qdrant() first.")
+        return _pool._http_client
 
     def _build_filter(self, filters: dict = None):
         if not filters:
