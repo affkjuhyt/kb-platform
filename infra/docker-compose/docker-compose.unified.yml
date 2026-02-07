@@ -174,6 +174,8 @@ services:
       context: ../../services/ingestion
       dockerfile: Dockerfile
     container_name: kb-ingestion
+    volumes:
+      - ../../services/ingestion:/app
     environment:
       RAG_SERVICE_PORT: 8000
       RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
@@ -232,6 +234,7 @@ services:
       HF_HUB_DISABLE_SYMLINKS: "true"
       FASTEMBED_CACHE_DIR: /models/hf
     volumes:
+      - ../../services/indexer:/app
       - model_cache:/models
     ports:
       - "8003:8000"
@@ -285,6 +288,7 @@ services:
       HF_HUB_DISABLE_SYMLINKS: "true"
       FASTEMBED_CACHE_DIR: /models/hf
     volumes:
+      - ../../services/indexer:/app
       - model_cache:/models
     depends_on:
       postgres:
@@ -367,11 +371,13 @@ services:
       context: ../../services/llm-gateway
       dockerfile: Dockerfile
     container_name: kb-llm-gateway
+    volumes:
+      - ../../services/llm-gateway:/app
     environment:
-      RAG_SERVICE_PORT: 8000
-      RAG_LLM_BACKEND: mock
-      RAG_LLM_PROVIDER: mock
-      RAG_MOCK_RESPONSE: "This is a mock response for testing purposes."
+      LLM_SERVICE_PORT: 8000
+      LLM_LLM_BACKEND: mock
+      LLM_LLM_PROVIDER: mock
+      LLM_MOCK_RESPONSE: "This is a mock response for testing purposes."
     ports:
       - "8004:8000"
     healthcheck:

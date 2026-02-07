@@ -1,20 +1,24 @@
 from datetime import datetime, UTC
+import logging
+import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-
-import sys
 
 sys.path.insert(0, "/Users/thiennlinh/Documents/New project/shared")
 
 from config import settings
-from utils.qdrant_store import QdrantStore
-
+from utils.qdrant_store import QdrantStore, init_qdrant, close_qdrant
 from routes.cache import cache_router
 from routes.extract import extract_router
 from routes.rag import rag_router
 from routes.search import search_router
-from utils.qdrant_store import init_qdrant, close_qdrant
-from contextlib import asynccontextmanager
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
 
 
 @asynccontextmanager

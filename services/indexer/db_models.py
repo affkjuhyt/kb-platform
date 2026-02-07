@@ -24,4 +24,6 @@ class ChunkRecord(Base):
     start = Column(Integer, nullable=False)
     end = Column(Integer, nullable=False)
     schema_version = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

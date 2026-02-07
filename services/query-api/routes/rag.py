@@ -7,7 +7,7 @@ rag_router = APIRouter()
 
 
 @rag_router.post("/rag", response_model=RAGResponse)
-def rag_query(payload: RAGRequest):
+async def rag_query(payload: RAGRequest):
     """
     Perform RAG-based question answering with citations.
 
@@ -19,10 +19,14 @@ def rag_query(payload: RAGRequest):
     temperature = payload.temperature or settings.rag_default_temperature
 
     if not settings.cache_enabled:
-        return _cached_rag(payload.query, payload.tenant_id, payload.top_k, temperature)
+        return await _cached_rag(
+            payload.query, payload.tenant_id, payload.top_k, temperature
+        )
 
     try:
-        return _cached_rag(payload.query, payload.tenant_id, payload.top_k, temperature)
+        return await _cached_rag(
+            payload.query, payload.tenant_id, payload.top_k, temperature
+        )
     except Exception as e:
         return RAGResponse(
             query=payload.query,

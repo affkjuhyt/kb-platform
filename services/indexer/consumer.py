@@ -28,9 +28,17 @@ def _chunk_metrics(chunks: list[ChunkPayload]) -> dict:
     }
 
 
-def process_event(event: dict) -> ChunkBatch:
+def process_event(event: dict) -> ChunkBatch | None:
     storage = storage_service_factory()
     data, content_type = storage.get_object(event["raw_object_key"])
+
+    if data is None:
+        logger.warning(
+            "⏭ Skipping processing: raw object %s not found in bucket %s",
+            event["raw_object_key"],
+            settings.minio_bucket,
+        )
+        return None
 
     root = parse_content(
         data=data,
@@ -100,6 +108,9 @@ def main() -> None:
         event = message.value
         try:
             batch = process_event(event)
+            if batch is None:
+                continue
+
             publisher.publish(batch.model_dump())
             chunk_rows = [c.model_dump() for c in batch.chunks]
             inserted = insert_chunks(chunk_rows)

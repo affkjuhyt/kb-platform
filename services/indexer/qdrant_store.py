@@ -1,7 +1,6 @@
 import asyncio
 import threading
 from typing import List, Optional
-from contextlib import asynccontextmanager
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
@@ -172,24 +171,40 @@ class QdrantStore:
                 for bid, bvec, bpayload in zip(batch_ids, batch_vectors, batch_payloads)
             ]
 
-            if self._use_grpc if self._use_grpc is not None else _pool.use_grpc:
-                try:
-                    client.upsert(
-                        collection_name=settings.qdrant_collection,
-                        points=points,
-                        wait=True,
-                    )
-                except Exception as e:
-                    print(f"⚠ gRPC upsert failed, falling back to HTTP: {e}")
+            def _do_upsert(c):
+                if self._use_grpc if self._use_grpc is not None else _pool.use_grpc:
+                    try:
+                        c.upsert(
+                            collection_name=settings.qdrant_collection,
+                            points=points,
+                            wait=True,
+                        )
+                    except Exception as e:
+                        print(f"⚠ gRPC upsert failed, falling back to HTTP: {e}")
+                        self._get_http_client().upsert(
+                            collection_name=settings.qdrant_collection,
+                            points=points,
+                            wait=True,
+                        )
+                else:
                     self._get_http_client().upsert(
                         collection_name=settings.qdrant_collection,
                         points=points,
                         wait=True,
                     )
-            else:
-                self._get_http_client().upsert(
-                    collection_name=settings.qdrant_collection, points=points, wait=True
-                )
+
+            try:
+                _do_upsert(client)
+            except Exception as e:
+                # If 404/UnexpectedResponse, the collection might have been deleted
+                if "404" in str(e) or "Not Found" in str(e):
+                    print(
+                        f"⚠️ Collection {settings.qdrant_collection} not found during upsert. Recreating..."
+                    )
+                    self.ensure_collection_sync()
+                    _do_upsert(client)
+                else:
+                    raise
 
     async def async_upsert(
         self,

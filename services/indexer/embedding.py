@@ -7,6 +7,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 from config import settings
 
+# Global singleton instance
+_embedder = None
+
+print(
+    f"DEBUG: embedding.py module load - PID: {os.getpid()}, Name: {__name__}, Path: {__file__}"
+)
+
 
 class BaseEmbedder:
     def embed(self, texts: List[str]) -> List[List[float]]:
@@ -42,13 +49,13 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         # Set cache directory
         os.environ.setdefault("TRANSFORMERS_CACHE", "/tmp/transformers_cache")
 
-        print(f"⏳ Loading embedding model: {model_name}...")
+        print(f"⏳ Loading embedding model: {model_name}... (PID: {os.getpid()})")
         self._model = SentenceTransformer(model_name)
         self._dim = dim
         self._batch_size = batch_size
         self._executor = ThreadPoolExecutor(max_workers=num_workers)
         self._model_name = model_name
-        print(f"✓ Embedding model loaded: {model_name}")
+        print(f"✓ Embedding model loaded: {model_name} (PID: {os.getpid()})")
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
@@ -159,14 +166,16 @@ class FastEmbedEmbedder(BaseEmbedder):
                 os.environ.get("SENTENCE_TRANSFORMERS_HOME", "/tmp/fastembed_cache"),
             )
 
-            print(f"⏳ Loading FastEmbed model: {model_name}...")
+            print(f"⏳ Loading FastEmbed model: {model_name}... (PID: {os.getpid()})")
             self._model = TextEmbedding(
                 model_name=model_name, cache_dir=cache_dir, threads=threads
             )
             self._backend = "fastembed"
-            print(f"✓ FastEmbed model loaded: {model_name}")
+            print(f"✓ FastEmbed model loaded: {model_name} (PID: {os.getpid()})")
         except Exception as e:
-            print(f"⚠ FastEmbed load failed, falling back to SentenceTransformers: {e}")
+            print(
+                f"⚠ FastEmbed load failed, falling back to SentenceTransformers: {e} (PID: {os.getpid()})"
+            )
             from sentence_transformers import SentenceTransformer
 
             self._model_name = model_name
@@ -214,9 +223,21 @@ class FastEmbedEmbedder(BaseEmbedder):
 
 
 def embedder_factory() -> BaseEmbedder:
-    num_workers = getattr(settings, "embedding_num_workers", 4)
-    model_name = getattr(settings, "embedding_model", "intfloat/multilingual-e5-large")
-    return FastEmbedEmbedder(model_name, settings.embedding_dim, num_workers)
+    global _embedder
+    if _embedder is None:
+        print(
+            f"DEBUG: embedder_factory INITIALIZING new embedder in PID: {os.getpid()}"
+        )
+        num_workers = getattr(settings, "embedding_num_workers", 4)
+        model_name = getattr(
+            settings, "embedding_model", "intfloat/multilingual-e5-large"
+        )
+        _embedder = FastEmbedEmbedder(model_name, settings.embedding_dim, num_workers)
+    else:
+        print(
+            f"DEBUG: embedder_factory returning EXISTING singleton in PID: {os.getpid()}"
+        )
+    return _embedder
 
 
 def async_embedder_factory() -> AsyncBatchEmbedder:

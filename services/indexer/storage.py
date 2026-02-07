@@ -18,12 +18,18 @@ class StorageService:
     def __init__(self, factory: StorageClientFactory):
         self._factory = factory
 
-    def get_object(self, key: str) -> tuple[bytes, str]:
+    def get_object(self, key: str) -> tuple[bytes | None, str | None]:
         client = self._factory.create_s3_client()
-        obj = client.get_object(Bucket=settings.minio_bucket, Key=key)
-        data = obj["Body"].read()
-        content_type = obj.get("ContentType", "application/octet-stream")
-        return data, content_type
+        try:
+            obj = client.get_object(Bucket=settings.minio_bucket, Key=key)
+            data = obj["Body"].read()
+            content_type = obj.get("ContentType", "application/octet-stream")
+            return data, content_type
+        except client.exceptions.NoSuchKey:
+            return None, None
+        except Exception as e:
+            print(f"⚠ Error fetching object {key}: {e}")
+            raise
 
 
 def storage_service_factory() -> StorageService:

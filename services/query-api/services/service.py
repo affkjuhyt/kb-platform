@@ -1,5 +1,7 @@
 import asyncio
 import httpx
+import time
+import logging
 
 from utils.prompt_builder import build_rag_query_prompt
 from schema import RAGCitation, RAGResponse, CitationInfo, SearchResult
@@ -14,9 +16,12 @@ from utils.embedding import embedder_factory
 from config import settings
 from schema import SearchResponse, SearchRequest
 
+logger = logging.getLogger("query-api.service")
+
 
 async def _perform_search(payload: SearchRequest) -> SearchResponse:
     """Internal search logic without caching."""
+    start_total = time.perf_counter()
     top_k = payload.top_k or settings.top_k
     embedder = embedder_factory()
     qdrant = QdrantStore()
@@ -24,16 +29,24 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
 
     filters = {"tenant_id": payload.tenant_id} if payload.tenant_id else None
 
+    # Step 1: Embedding
+    start_embed = time.perf_counter()
     vector = embedder.embed_query(payload.query)
+    embed_time = (time.perf_counter() - start_embed) * 1000
+    print(f"⏱️ Embedding time: {embed_time:.2f}ms")
 
+    # Step 2: Parallel Search
+    start_search = time.perf_counter()
     v_task = asyncio.to_thread(qdrant.search, vector, settings.vector_k, filters)
     b_task = asyncio.to_thread(
         opensearch.bm25_search, payload.query, settings.bm25_k, filters
     )
 
     v_hits, b_hits = await asyncio.gather(v_task, b_task)
-    v_rank = []
+    search_time = (time.perf_counter() - start_search) * 1000
+    print(f"⏱️ Retrieval time (v + b): {search_time:.2f}ms")
 
+    v_rank = []
     for hit in v_hits:
         doc_id = hit.payload.get("doc_id")
         chunk_index = hit.payload.get("chunk_index")
@@ -45,15 +58,22 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
         chunk_index = hit["_source"]["chunk_index"]
         b_rank.append((f"{doc_id}:{chunk_index}", float(hit.get("_score", 0.0))))
 
+    # Step 3: Fusion
+    start_fusion = time.perf_counter()
     v_scores = {k: s for k, s in v_rank}
     b_scores = {k: s for k, s in b_rank}
     if settings.fusion_method == "weighted":
         fusion_scores = weighted_fusion(v_scores, b_scores)
     else:
         fusion_scores = rrf_fusion([v_rank, b_rank])
+
     ranked = sorted(fusion_scores.items(), key=lambda x: x[1], reverse=True)
     ranked_ids = ranked[: top_k * 2]
+    fusion_time = (time.perf_counter() - start_fusion) * 1000
+    print(f"⏱️ Fusion time: {fusion_time:.2f}ms")
 
+    # Step 4: DB Retrieval
+    start_db = time.perf_counter()
     id_pairs = []
     for item_id, _ in ranked_ids:
         doc_id, chunk_index = item_id.split(":", 1)
@@ -70,7 +90,11 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
         if not chunk:
             continue
         candidates.append((chunk, score))
+    db_time = (time.perf_counter() - start_db) * 1000
+    print(f"⏱️ DB retrieval time: {db_time:.2f}ms")
 
+    # Step 5: Reranking
+    start_rerank = time.perf_counter()
     if settings.rerank_backend == "service":
         top = candidates[: settings.rerank_top_n]
         try:
@@ -95,7 +119,8 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
             candidates = [
                 (c, scores_map.get(f"{c.doc_id}:{c.chunk_index}", s)) for c, s in top
             ] + candidates[settings.rerank_top_n :]
-        except Exception:
+        except Exception as e:
+            logger.warning("Rerank service failed: %s, falling back to basic", e)
             texts = [c.text for c, _ in top]
             scores = basic_rerank(payload.query, texts)
             candidates = (
@@ -103,10 +128,16 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
                 + candidates[settings.rerank_top_n :]
             )
     elif settings.rerank_backend == "basic":
-        texts = [c.text for c in candidates]
+        texts = [c.text for c, _ in candidates]
         scores = basic_rerank(payload.query, texts)
         candidates = [(c, s) for (c, _), s in zip(candidates, scores)]
 
+    # Force sorting after reranking to ensure top results are at the top
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    rerank_time = (time.perf_counter() - start_rerank) * 1000
+    print(f"⏱️ Reranking time: {rerank_time:.2f}ms")
+
+    # Step 6: Conflict Resolution & Final Prep
     priority_map = {}
     if settings.source_priority:
         for item in settings.source_priority.split(","):
@@ -149,6 +180,8 @@ async def _perform_search(payload: SearchRequest) -> SearchResponse:
         if len(results) >= top_k:
             break
 
+    total_time = (time.perf_counter() - start_total) * 1000
+    print(f"🚀 Total search time for query '{payload.query}': {total_time:.2f}ms")
     return SearchResponse(query=payload.query, results=results)
 
 

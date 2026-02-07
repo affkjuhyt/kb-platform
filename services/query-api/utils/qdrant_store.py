@@ -1,4 +1,6 @@
 import asyncio
+import time
+import logging
 from typing import List, Optional
 from dataclasses import dataclass
 
@@ -13,6 +15,8 @@ from qdrant_client.http.models import (
 )
 
 from config import settings
+
+logger = logging.getLogger("query-api.qdrant")
 
 
 @dataclass
@@ -170,8 +174,11 @@ class QdrantStore:
         url = f"{settings.qdrant_url}/collections/{settings.qdrant_collection}/points/search"
 
         try:
+            start_search = time.perf_counter()
             response = httpx.post(url, json=body, timeout=60)
             response.raise_for_status()
+            search_time = (time.perf_counter() - start_search) * 1000
+            print(f"📡 Qdrant search request took {search_time:.2f}ms")
             data = response.json()
 
             # Convert response to ScoredPoint objects
