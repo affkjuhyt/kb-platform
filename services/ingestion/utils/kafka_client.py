@@ -16,7 +16,6 @@ class KafkaProducerFactory:
     def create_producer(self):
         if not settings.kafka_brokers:
             return None
-        from kafka import KafkaProducer
 
         return KafkaProducer(
             bootstrap_servers=settings.kafka_brokers.split(","),
