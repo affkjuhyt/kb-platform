@@ -10,6 +10,7 @@ sys.path.insert(0, "/Users/thiennlinh/Documents/New project/shared")
 from config import settings
 from utils.qdrant_store import QdrantStore, init_qdrant, close_qdrant
 from routes.cache import cache_router
+from routes.chunks import router as chunks_router
 from routes.extract import extract_router
 from routes.rag import rag_router
 from routes.search import search_router
@@ -33,7 +34,6 @@ async def lifespan(app: FastAPI):
     # Ensure collection exists
     try:
         qdrant = QdrantStore()
-        # Try a dummy search to trigger collection creation if needed
         from qdrant_client.http.models import Distance, VectorParams
 
         http_client = qdrant._get_http_client()
@@ -59,6 +59,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Could not ensure collection: {e}")
 
+    # Model warmup: preload embedding model into memory
+    print("🔥 Warming up embedding model...")
+    try:
+        from utils.embedding import embedder_factory
+
+        embedder = embedder_factory()
+        _ = embedder.embed_query("warmup query")
+        print("✅ Embedding model warmed up")
+    except Exception as e:
+        print(f"⚠️ Model warmup failed: {e}")
+
     print("✅ Query API startup complete")
 
     yield
@@ -72,6 +83,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Query API", lifespan=lifespan)
 app.include_router(cache_router)
+app.include_router(chunks_router)
 app.include_router(extract_router)
 app.include_router(rag_router)
 app.include_router(search_router)

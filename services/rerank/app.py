@@ -50,8 +50,8 @@ def _get_model():
             import os
 
             cache_dir = os.getenv("HF_HOME", "/tmp/flashrank")
-            _cross_encoder = Ranker(cache_dir=cache_dir)
-            logger.info("✓ FlashRank Ranker loaded")
+            _cross_encoder = Ranker(model_name=settings.model, cache_dir=cache_dir)
+            logger.info("✓ FlashRank Ranker (%s) loaded", settings.model)
         except Exception as exc:
             logger.warning("Failed to load FlashRank: %s", exc)
             _failed = True

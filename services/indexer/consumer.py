@@ -115,8 +115,11 @@ def main() -> None:
             chunk_rows = [c.model_dump() for c in batch.chunks]
             inserted = insert_chunks(chunk_rows)
 
+            # Batch embedding: process all chunks at once
             texts = [c.text for c in batch.chunks]
             vectors = embedder.embed_documents(texts)
+            logger.info(f"✅ Batch embedded {len(texts)} chunks")
+
             import uuid
 
             # deterministic UUIDs per chunk for Qdrant
@@ -139,10 +142,11 @@ def main() -> None:
             ]
             qdrant.upsert(ids=ids, vectors=vectors, payloads=payloads)
 
-            for c in batch.chunks:
-                opensearch.index_chunk(
-                    chunk_id=f"{batch.doc_id}:{c.chunk_index}",
-                    body={
+            # Bulk index to OpenSearch
+            opensearch_docs = [
+                (
+                    f"{batch.doc_id}:{c.chunk_index}",
+                    {
                         "doc_id": c.doc_id,
                         "tenant_id": c.tenant_id,
                         "source": c.source,
@@ -153,6 +157,10 @@ def main() -> None:
                         "section_path": c.section_path,
                     },
                 )
+                for c in batch.chunks
+            ]
+            opensearch.bulk_index(opensearch_docs)
+
             metrics = _chunk_metrics(batch.chunks)
             logger.info(
                 "Processed doc_id=%s chunks=%s inserted=%s avg_len=%s max_len=%s",

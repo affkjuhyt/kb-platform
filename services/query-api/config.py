@@ -25,10 +25,11 @@ class Settings(BaseSettings):
     bm25_weight: float = 0.4
     vector_weight: float = 0.6
 
-    rerank_backend: str = "service"
+    rerank_backend: str = "local"  # "local" or "service"
     rerank_url: str = "http://localhost:8005"
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
-    rerank_top_n: int = 10
+    rerank_model_local: str = "ms-marco-MiniLM-L-12-v2"  # For local FlashRank
+    rerank_top_n: int = 5
 
     source_priority: str = ""
 
