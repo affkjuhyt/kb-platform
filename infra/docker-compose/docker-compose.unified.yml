@@ -6,7 +6,7 @@ version: "3.8"
 
 services:
   # ==================== DATABASE & STORAGE ====================
-  
+
   postgres:
     image: postgres:16
     container_name: kb-postgres
@@ -51,9 +51,9 @@ services:
         max-file: "3"
 
   # ==================== VECTOR & SEARCH ====================
-  
+
   qdrant:
-    image: qdrant/qdrant:v1.9.1
+    image: qdrant/qdrant:v1.12.1
     container_name: kb-qdrant
     ports:
       - "6333:6333"
@@ -103,7 +103,7 @@ services:
         max-file: "5"
 
   # ==================== FILE STORAGE ====================
-  
+
   minio:
     image: minio/minio:RELEASE.2024-06-06T09-36-42Z
     container_name: kb-minio
@@ -130,7 +130,7 @@ services:
         max-file: "3"
 
   # ==================== MESSAGE QUEUE ====================
-  
+
   kafka:
     image: apache/kafka:3.7.0
     container_name: kb-kafka
@@ -150,7 +150,13 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test:
+        [
+          "CMD",
+          "kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:9092",
+        ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -163,7 +169,7 @@ services:
         max-file: "3"
 
   # ==================== APPLICATION SERVICES ====================
-  
+
   ingestion:
     build:
       context: ../../services/ingestion
@@ -395,7 +401,7 @@ services:
         max-file: "3"
 
   # ==================== API GATEWAY ====================
-  
+
   api-gateway:
     image: nginx:1.27
     container_name: kb-api-gateway

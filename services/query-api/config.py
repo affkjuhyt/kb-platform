@@ -46,11 +46,11 @@ class Settings(BaseSettings):
     cache_ttl_extraction: int = 1800
     redis_url: str = "redis://localhost:6379/0"
 
-    hyde_enabled: bool = False
+    hyde_enabled: bool = False  # Tắt để tăng tốc, bật khi cần accuracy cao
     hyde_max_length: int = 200
     hyde_temperature: float = 0.3
 
-    query_decomposition_enabled: bool = False
+    query_decomposition_enabled: bool = False  # Tắt để tăng tốc
     decomposition_max_subqueries: int = 3
     decomposition_merge_strategy: str = "rrf"
 

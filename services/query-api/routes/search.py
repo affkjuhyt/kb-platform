@@ -25,11 +25,11 @@ search_router = APIRouter()
 
 
 @search_router.post("/search", response_model=SearchResponse)
-def search(payload: SearchRequest):
+async def search(payload: SearchRequest):
     if not settings.cache_enabled:
-        return _perform_search(payload)
+        return await _perform_search(payload)
     top_k = payload.top_k or 10
-    return _cached_search(payload.query, payload.tenant_id or "default", top_k)
+    return await _cached_search(payload.query, payload.tenant_id or "default", top_k)
 
 
 @search_router.post("/citations", response_model=CitationsResponse)

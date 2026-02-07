@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 
 from utils.prompt_builder import build_rag_query_prompt
@@ -14,7 +15,7 @@ from config import settings
 from schema import SearchResponse, SearchRequest
 
 
-def _perform_search(payload: SearchRequest) -> SearchResponse:
+async def _perform_search(payload: SearchRequest) -> SearchResponse:
     """Internal search logic without caching."""
     top_k = payload.top_k or settings.top_k
     embedder = embedder_factory()
@@ -23,15 +24,21 @@ def _perform_search(payload: SearchRequest) -> SearchResponse:
 
     filters = {"tenant_id": payload.tenant_id} if payload.tenant_id else None
 
-    vector = embedder.embed([payload.query])[0]
-    v_hits = qdrant.search(vector, limit=settings.vector_k, filters=None)
+    vector = embedder.embed_query(payload.query)
+
+    v_task = asyncio.to_thread(qdrant.search, vector, settings.vector_k, filters)
+    b_task = asyncio.to_thread(
+        opensearch.bm25_search, payload.query, settings.bm25_k, filters
+    )
+
+    v_hits, b_hits = await asyncio.gather(v_task, b_task)
     v_rank = []
+
     for hit in v_hits:
         doc_id = hit.payload.get("doc_id")
         chunk_index = hit.payload.get("chunk_index")
         v_rank.append((f"{doc_id}:{chunk_index}", float(hit.score)))
 
-    b_hits = opensearch.bm25_search(payload.query, settings.bm25_k, filters=filters)
     b_rank = []
     for hit in b_hits.get("hits", {}).get("hits", []):
         doc_id = hit["_source"]["doc_id"]
@@ -146,10 +153,10 @@ def _perform_search(payload: SearchRequest) -> SearchResponse:
 
 
 @cache_search(ttl=300)
-def _cached_search(query: str, tenant_id: str, top_k: int = 10):
+async def _cached_search(query: str, tenant_id: str, top_k: int = 10):
     """Cached search wrapper."""
     payload = SearchRequest(query=query, tenant_id=tenant_id or "default", top_k=top_k)
-    return _perform_search(payload)
+    return await _perform_search(payload)
 
 
 # ============================================================================

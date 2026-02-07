@@ -105,7 +105,7 @@ def main() -> None:
             inserted = insert_chunks(chunk_rows)
 
             texts = [c.text for c in batch.chunks]
-            vectors = embedder.embed(texts)
+            vectors = embedder.embed_documents(texts)
             import uuid
 
             # deterministic UUIDs per chunk for Qdrant
