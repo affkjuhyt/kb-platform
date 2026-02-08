@@ -3,7 +3,10 @@ import os
 
 class Settings:
     SERVICE_PORT = int(os.getenv("API_GATEWAY_PORT", "8000"))
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-here").strip("\"'")
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    if not JWT_SECRET_KEY:
+        raise ValueError("JWT_SECRET_KEY environment variable is not set")
+    JWT_SECRET_KEY = JWT_SECRET_KEY.strip("\"'")
     JWT_ALGORITHM = "HS256"
     JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 

@@ -40,7 +40,7 @@ class UserLogin(BaseModel):
 class UserRegister(BaseModel):
     email: str
     password: str
-    tenant_id: str
+    tenant_id: Optional[str] = "default"
     name: str
 
 

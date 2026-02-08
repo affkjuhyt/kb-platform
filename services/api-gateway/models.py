@@ -66,3 +66,16 @@ class User(Base):
     full_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Invitation(Base):
+    __tablename__ = "invitations"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    tenant_id = Column(
+        String, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    email = Column(String, nullable=False, index=True)
+    role = Column(String, default="member")
+    status = Column(String, default="pending")  # pending, accepted, expired
+    invited_by = Column(String, nullable=True)  # user_id of the inviter
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

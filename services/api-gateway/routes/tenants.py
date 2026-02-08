@@ -4,7 +4,7 @@ Handles CRUD operations for tenants, settings, and user management using Postgre
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 import uuid
@@ -82,6 +82,18 @@ class TenantUserResponse(TenantUserBase):
     user_id: str
     name: str
     joined_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InvitationResponse(BaseModel):
+    id: str
+    tenant_id: str
+    email: str
+    role: str
+    status: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -367,7 +379,10 @@ async def list_tenant_users(
     return users
 
 
-@router.post("/{tenant_id}/users/invite", response_model=TenantUserResponse)
+@router.post(
+    "/{tenant_id}/users/invite",
+    response_model=Union[TenantUserResponse, InvitationResponse],
+)
 async def invite_user(
     tenant_id: str,
     invite: UserInvite,
@@ -401,26 +416,52 @@ async def invite_user(
     if existing:
         raise HTTPException(status_code=400, detail="User already in tenant")
 
-    # Create user link
-    # Here we should ideally lookup Global User table by email to get user_id.
-    # Since we lack Global User table in this scope (it's implicit in Auth),
-    # we'll generate a placeholder user_id or assume email serves as ID for invitee until they login?
-    # For now, let's generate a UUID for user_id.
-    # IN REALITY: We would check `users` table.
-
-    new_user_id = str(uuid.uuid4())  # Placeholder
-
-    new_member = models.TenantUser(
-        tenant_id=tenant_id,
-        user_id=new_user_id,
-        email=invite.email,
-        name=invite.email.split("@")[0],
-        role=invite.role,
+    # Check for existing pending invitation
+    existing_invite = (
+        db.query(models.Invitation)
+        .filter(
+            models.Invitation.tenant_id == tenant_id,
+            models.Invitation.email == invite.email,
+            models.Invitation.status == "pending",
+        )
+        .first()
     )
-    db.add(new_member)
-    db.commit()
-    db.refresh(new_member)
-    return new_member
+    if existing_invite:
+        raise HTTPException(status_code=400, detail="Invitation already pending")
+
+    # Check if user already exists in the global users table
+    user = db.query(models.User).filter(models.User.email == invite.email).first()
+
+    if user:
+        # User exists, link to tenant immediately
+        new_member = models.TenantUser(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            email=invite.email,
+            name=user.full_name or invite.email.split("@")[0],
+            role=invite.role,
+        )
+        db.add(new_member)
+        db.commit()
+        db.refresh(new_member)
+        return new_member
+    else:
+        # User doesn't exist, create an invitation
+        new_invite = models.Invitation(
+            tenant_id=tenant_id,
+            email=invite.email,
+            role=invite.role,
+            invited_by=user_id,  # user_id of the person inviting
+        )
+        db.add(new_invite)
+        db.commit()
+        db.refresh(new_invite)
+
+        # In a real app, we would return the invitation or a success message
+        # For compatibility with existing return type hints, we can return a mock user
+        # or update the endpoint to reflect invitations.
+        # For now, let's return the new invitation as a dict or similar if possible
+        return new_invite
 
 
 @router.delete("/{tenant_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

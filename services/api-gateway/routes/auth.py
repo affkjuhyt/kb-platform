@@ -7,7 +7,7 @@ from sqlalchemy import or_
 import secrets
 
 from database import get_db
-from models import User, Tenant, TenantUser, TenantSettings
+from models import User, Tenant, TenantUser, TenantSettings, Invitation
 from auth import (
     Token,
     UserLogin,
@@ -116,6 +116,7 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
         is_active=True,
     )
     db.add(new_user)
+    db.flush()  # Ensure user exists before referencing in TenantUser or Invitations
 
     # Create Tenant (if tenant_id provided is "new" or similar, usually we create one based on name)
     # But UserRegister model has tenant_id. If frontend sends "default", we generate one.
@@ -149,8 +150,30 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     )
     db.add(tenant_user)
 
+    # Process pending invitations
+    pending_invites = (
+        db.query(Invitation)
+        .filter(Invitation.email == user_data.email, Invitation.status == "pending")
+        .all()
+    )
+
+    for invite in pending_invites:
+        # Create TenantUser link for this workspace
+        new_member = TenantUser(
+            id=str(uuid.uuid4()),
+            tenant_id=invite.tenant_id,
+            user_id=user_id,
+            email=user_data.email,
+            name=user_data.name,
+            role=invite.role,
+        )
+        db.add(new_member)
+        # Mark invitation as accepted
+        invite.status = "accepted"
+
     try:
         db.commit()
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")

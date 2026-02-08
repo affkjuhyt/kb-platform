@@ -445,7 +445,7 @@ services:
     environment:
       - PORT=8000
       - DATABASE_URL=postgresql://rag:rag@postgres:5432/rag
-      - QUERY_API_URL=http://query-api:80010
+      - QUERY_API_URL=http://query-api:8001
       - LLM_GATEWAY_URL=http://llm-gateway:8000
       - INGESTION_API_URL=http://ingestion:8000
       - JWT_SECRET_KEY="dev-secret-key"
