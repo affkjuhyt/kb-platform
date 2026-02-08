@@ -15,53 +15,29 @@ import uuid
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
-from functools import wraps
 
-from fastapi import FastAPI, HTTPException, Request, Depends, status, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import httpx
 import redis
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 import os
+
+# Helper imports
+from config import settings
+from auth import (
+    Token,
+    TokenData,
+    create_access_token,
+    verify_token,
+    get_current_user,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api_gateway")
-
-
-# Configuration
-class Settings:
-    SERVICE_PORT = int(os.getenv("API_GATEWAY_PORT", "8000"))
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-here")
-    JWT_ALGORITHM = "HS256"
-    JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
-
-    # Rate limiting
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
-    RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))  # 1 hour
-
-    # Backend services
-    QUERY_API_URL = os.getenv("QUERY_API_URL", "http://localhost:8001")
-    LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://localhost:8004")
-    INGESTION_API_URL = os.getenv("INGESTION_API_URL", "http://localhost:8002")
-
-    # Audit logging
-    AUDIT_LOG_ENABLED = os.getenv("AUDIT_LOG_ENABLED", "true").lower() == "true"
-
-
-settings = Settings()
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Security
-security = HTTPBearer()
 
 # Redis client for rate limiting
 try:
@@ -97,50 +73,6 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 # ============================================================================
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    tenant_id: str
-
-
-class TokenData(BaseModel):
-    user_id: str
-    tenant_id: str
-    email: str
-    permissions: List[str]
-    exp: Optional[datetime] = None
-
-
-class UserLogin(BaseModel):
-    email: str = Field(..., description="User email")
-    password: str = Field(..., description="User password")
-    tenant_id: str = Field(..., description="Tenant ID")
-
-
-class UserRegister(BaseModel):
-    email: str = Field(..., description="User email")
-    password: str = Field(..., min_length=8, description="User password")
-    tenant_id: str = Field(..., description="Tenant ID")
-    name: str = Field(..., description="User name")
-
-
-class APIKeyCreate(BaseModel):
-    name: str = Field(..., description="API key name")
-    permissions: List[str] = Field(default=["read"], description="API key permissions")
-    expires_days: Optional[int] = Field(default=30, description="Expiration in days")
-
-
-class APIKey(BaseModel):
-    key_id: str
-    api_key: str
-    name: str
-    tenant_id: str
-    permissions: List[str]
-    created_at: datetime
-    expires_at: Optional[datetime] = None
-
-
 class AuditLogEntry(BaseModel):
     id: str
     timestamp: datetime
@@ -162,85 +94,6 @@ class RateLimitInfo(BaseModel):
     limit: int
     remaining: int
     reset_at: datetime
-
-
-# ============================================================================
-# Authentication
-# ============================================================================
-
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT access token."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRATION_HOURS)
-
-    to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "access"})
-    encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
-    return encoded_jwt
-
-
-def verify_token(token: str) -> TokenData:
-    """Verify and decode JWT token."""
-    try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
-
-        if payload.get("type") != "access":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
-            )
-
-        return TokenData(
-            user_id=payload.get("sub"),
-            tenant_id=payload.get("tenant_id"),
-            email=payload.get("email"),
-            permissions=payload.get("permissions", []),
-            exp=datetime.fromtimestamp(payload.get("exp")),
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-) -> TokenData:
-    """Dependency to get current authenticated user."""
-    token = credentials.credentials
-    return verify_token(token)
-
-
-def require_permissions(required_permissions: List[str]):
-    """Decorator to require specific permissions."""
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(
-            *args, current_user: TokenData = Depends(get_current_user), **kwargs
-        ):
-            user_permissions = set(current_user.permissions)
-            required = set(required_permissions)
-
-            if not required.issubset(user_permissions):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Insufficient permissions. Required: {required_permissions}",
-                )
-
-            return await func(*args, current_user=current_user, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 # ============================================================================
@@ -411,109 +264,8 @@ async def audit_logging_middleware(request: Request, call_next):
 
 
 # ============================================================================
-# Auth Endpoints
+# Auth Endpoints (Moved to routes/auth.py)
 # ============================================================================
-
-
-@app.post("/auth/login", response_model=Token, tags=["Authentication"])
-async def login(credentials: UserLogin):
-    """
-    Authenticate user and return JWT token.
-
-    - **email**: User email address
-    - **password**: User password
-    - **tenant_id**: Tenant identifier
-    """
-    # In production, verify against database
-    # For demo, accept any credentials
-
-    user_id = str(uuid.uuid4())
-    access_token_expires = timedelta(hours=settings.JWT_EXPIRATION_HOURS)
-    access_token = create_access_token(
-        data={
-            "sub": user_id,
-            "email": credentials.email,
-            "tenant_id": credentials.tenant_id,
-            "permissions": ["read", "write"],
-        },
-        expires_delta=access_token_expires,
-    )
-
-    return Token(
-        access_token=access_token,
-        expires_in=int(access_token_expires.total_seconds()),
-        tenant_id=credentials.tenant_id,
-    )
-
-
-@app.post("/auth/register", response_model=Token, tags=["Authentication"])
-async def register(user_data: UserRegister):
-    """
-    Register a new user and return JWT token.
-
-    - **email**: User email address
-    - **password**: Password (min 8 characters)
-    - **tenant_id**: Tenant identifier
-    - **name**: User full name
-    """
-    # In production, save to database
-    user_id = str(uuid.uuid4())
-    access_token_expires = timedelta(hours=settings.JWT_EXPIRATION_HOURS)
-    access_token = create_access_token(
-        data={
-            "sub": user_id,
-            "email": user_data.email,
-            "tenant_id": user_data.tenant_id,
-            "permissions": ["read", "write"],
-        },
-        expires_delta=access_token_expires,
-    )
-
-    return Token(
-        access_token=access_token,
-        expires_in=int(access_token_expires.total_seconds()),
-        tenant_id=user_data.tenant_id,
-    )
-
-
-@app.post("/auth/api-keys", response_model=APIKey, tags=["Authentication"])
-async def create_api_key(
-    key_data: APIKeyCreate, current_user: TokenData = Depends(get_current_user)
-):
-    """
-    Create a new API key for programmatic access.
-
-    - **name**: Descriptive name for the API key
-    - **permissions**: List of permissions (e.g., ["read", "write"])
-    - **expires_days**: Number of days until expiration (optional)
-    """
-    key_id = str(uuid.uuid4())
-    api_key = f"rag_{key_id}_{secrets.token_urlsafe(32)}"
-
-    expires_at = None
-    if key_data.expires_days:
-        expires_at = datetime.utcnow() + timedelta(days=key_data.expires_days)
-
-    return APIKey(
-        key_id=key_id,
-        api_key=api_key,
-        name=key_data.name,
-        tenant_id=current_user.tenant_id,
-        permissions=key_data.permissions,
-        created_at=datetime.utcnow(),
-        expires_at=expires_at,
-    )
-
-
-@app.get("/auth/me", tags=["Authentication"])
-async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
-    """Get current user information."""
-    return {
-        "user_id": current_user.user_id,
-        "email": current_user.email,
-        "tenant_id": current_user.tenant_id,
-        "permissions": current_user.permissions,
-    }
 
 
 # ============================================================================
@@ -691,6 +443,19 @@ async def health_check():
             "llm_gateway": "unknown",
         },
     }
+
+
+# ============================================================================
+# Register Routers
+# ============================================================================
+
+# Import routes
+from routes.tenants import router as tenant_router
+from routes.auth import router as auth_router
+
+# Include routers
+app.include_router(tenant_router)
+app.include_router(auth_router)
 
 
 # ============================================================================

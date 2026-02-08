@@ -443,12 +443,13 @@ services:
     ports:
       - "8080:8000"
     environment:
-      API_GATEWAY_PORT: 8000
-      QUERY_API_URL: http://query-api:8000
-      LLM_GATEWAY_URL: http://llm-gateway:8000
-      INGESTION_API_URL: http://ingestion:8000
-      JWT_SECRET_KEY: "dev-secret-key"
-      REDIS_URL: redis://redis:6379/0
+      - PORT=8000
+      - DATABASE_URL=postgresql://rag:rag@postgres:5432/rag
+      - QUERY_API_URL=http://query-api:80010
+      - LLM_GATEWAY_URL=http://llm-gateway:8000
+      - INGESTION_API_URL=http://ingestion:8000
+      - JWT_SECRET_KEY="dev-secret-key"
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - query-api
       - ingestion

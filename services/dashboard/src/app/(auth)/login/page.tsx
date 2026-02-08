@@ -47,7 +47,6 @@ export default function LoginPage() {
             const response = await axios.post('/auth/login', {
                 email: values.email,
                 password: values.password,
-                tenant_id: "1"
             }, {
                 headers: {
                     'Content-Type': 'application/json',
