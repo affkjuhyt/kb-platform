@@ -1,4 +1,4 @@
-from embedding import SentenceTransformerEmbedder
+from services.embedding import SentenceTransformerEmbedder
 
 
 def test_sentence_transformer_dim():

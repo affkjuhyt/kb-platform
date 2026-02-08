@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, "/Users/thiennlinh/Documents/New project/services/indexer")
 
-from chunker import (
+from services.chunker import (
     chunk_document,
     _chunk_sentence,
     _chunk_semantic_fallback,
@@ -76,7 +76,7 @@ class TestChunkingSentence:
         text = "Sentence one. Sentence two. Sentence three. " * 20
         chunks = []
 
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_max_chars = 50
             mock_settings.chunk_overlap_chars = 20
             mock_settings.chunk_min_chars = 10
@@ -93,7 +93,7 @@ class TestChunkingSemantic:
         text = "Machine learning is a subset of AI. Deep learning uses neural networks."
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 10
             mock_settings.chunk_max_chars = 500
             mock_settings.semantic_embedder_name = "test-model"
@@ -116,7 +116,7 @@ class TestChunkingSemantic:
         chunks_high_threshold = []
         chunks_low_threshold = []
 
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 5
             mock_settings.chunk_max_chars = 1000
 
@@ -146,7 +146,7 @@ class TestChunkingSemantic:
         text = "Single sentence."
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 5
             _chunk_semantic_fallback(text, [], chunks, 0)
 
@@ -169,7 +169,7 @@ Content for heading 2.
 Content for heading 3."""
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 5
             _chunk_markdown(text, [], chunks, 0)
 
@@ -188,7 +188,7 @@ Section 1 content.
 Section 2 content."""
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 5
             _chunk_markdown(text, [], chunks, 0)
 
@@ -302,7 +302,7 @@ class TestChunkingConfiguration:
         """Test that chunk method is selected correctly."""
         text = "Test content."
 
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_method = "sentence"
             mock_settings.chunk_min_chars = 5
 
@@ -315,7 +315,7 @@ class TestChunkingConfiguration:
         long_text = "Word. " * 1000  # Very long text
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_max_chars = 100
             mock_settings.chunk_overlap_chars = 20
             mock_settings.chunk_min_chars = 10
@@ -338,7 +338,7 @@ class TestChunkingEdgeCases:
     def test_very_short_text(self):
         """Test chunking very short text."""
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 5
             mock_settings.chunk_max_chars = 100
             _chunk_sentence("Hi.", [], chunks, 0)
@@ -360,7 +360,7 @@ class TestChunkingEdgeCases:
         text = "Special chars: @#$%^&*()!!!"
 
         chunks = []
-        with patch("chunker.settings") as mock_settings:
+        with patch("services.chunker.settings") as mock_settings:
             mock_settings.chunk_min_chars = 1
             mock_settings.chunk_max_chars = 1000
             _chunk_sentence(text, [], chunks, 0)

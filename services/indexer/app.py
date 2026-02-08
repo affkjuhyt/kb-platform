@@ -112,10 +112,10 @@ def chunk(payload: ParseRequest):
 @app.post("/chunk/test", response_model=ChunkResponse)
 def chunk_test(payload: ChunkRequest):
     """Test chunking with a specific method."""
-    from models import Chunk, Node
+    from models import ChunkRecord
 
     method = payload.method.lower()
-    chunks: List[Chunk] = []
+    chunks: List[ChunkRecord] = []
 
     if method == "sentence":
         _chunk_sentence(payload.text, [], chunks, 0)

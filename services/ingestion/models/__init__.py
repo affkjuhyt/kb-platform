@@ -1,3 +1,3 @@
-from document import Document
+from models.document import Document
 
 __all__ = ["Document"]
