@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import sessionmaker
 
 from config import settings
-from db_models import Base, ChunkRecord
+from models import Base, ChunkRecord
 
 
 engine = create_engine(settings.postgres_dsn, pool_pre_ping=True)

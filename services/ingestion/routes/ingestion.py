@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import Form, File, UploadFile, HTTPException, APIRouter
 
 from services.ingestion import _store_and_record
-from schema.requests import IngestWebhookRequest, IngestResponse, IngestPullRequest
+from schema import IngestWebhookRequest, IngestResponse, IngestPullRequest
 
 ingest_router = APIRouter()
 

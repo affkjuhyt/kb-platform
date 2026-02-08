@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from db import get_latest_doc, insert_document, mark_latest_false
-from schema.requests import IngestResponse
+from schema import IngestResponse
 from utils.kafka_client import event_publisher_factory
 from utils.storage import storage_service_factory
 

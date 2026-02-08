@@ -1,5 +1,5 @@
-from parsers import parse_markdown
-from chunker import chunk_document
+from utils.parsers import parse_markdown
+from services.chunker import chunk_document
 
 
 def test_markdown_chunking_has_paths():
