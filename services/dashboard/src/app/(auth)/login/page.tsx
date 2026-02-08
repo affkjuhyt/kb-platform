@@ -20,8 +20,8 @@ import { toast } from 'sonner';
 import axios from 'axios';
 
 const formSchema = z.object({
-    username: z.string().min(2, {
-        message: 'Username must be at least 2 characters.',
+    email: z.string().email({
+        message: 'Please enter a valid email address.',
     }),
     password: z.string().min(6, {
         message: 'Password must be at least 6 characters.',
@@ -35,7 +35,7 @@ export default function LoginPage() {
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
-            username: '',
+            email: '',
             password: '',
         },
     });
@@ -45,7 +45,7 @@ export default function LoginPage() {
         try {
             // In a real implementation, this URL should be configured via environment variables
             const response = await axios.post('/auth/login', {
-                email: values.username,
+                email: values.email,
                 password: values.password,
                 tenant_id: "1"
             }, {
@@ -58,9 +58,9 @@ export default function LoginPage() {
                 login(response.data.access_token);
                 toast.success('Login successful');
             }
-        } catch (error) {
-            console.error('Login error:', error);
-            toast.error('Invalid username or password');
+        } catch (error: any) {
+            console.error('Login error:', error.message || 'An error occurred during login');
+            toast.error(axios.isAxiosError(error) && !error.response ? 'Network error. Please check your connection.' : 'Invalid username or password');
         } finally {
             setLoading(false);
         }
@@ -80,10 +80,10 @@ export default function LoginPage() {
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                             <FormField
                                 control={form.control}
-                                name="username"
+                                name="email"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Username</FormLabel>
+                                        <FormLabel>Email</FormLabel>
                                         <FormControl>
                                             <Input placeholder="admin" {...field} />
                                         </FormControl>

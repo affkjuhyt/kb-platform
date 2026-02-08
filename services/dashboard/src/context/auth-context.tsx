@@ -5,13 +5,7 @@ import Cookies from 'js-cookie';
 import { jwtDecode } from 'jwt-decode';
 import { useRouter, usePathname } from 'next/navigation';
 import axios from 'axios';
-
-interface User {
-    id: string;
-    email: string;
-    role: string;
-    tenant_id: string;
-}
+import { User } from '@/types/auth';
 
 interface AuthContextType {
     user: User | null;
@@ -33,7 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const login = (newToken: string) => {
         Cookies.set('token', newToken, { expires: 1 }); // 1 day
         setToken(newToken);
-        const decoded: any = jwtDecode(newToken);
+        const decoded = jwtDecode<{ sub: string; email: string; role: string; tenant_id: string; exp: number }>(newToken);
         setUser({
             id: decoded.sub,
             email: decoded.email,
@@ -57,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const storedToken = Cookies.get('token');
             if (storedToken) {
                 try {
-                    const decoded: any = jwtDecode(storedToken);
+                    const decoded = jwtDecode<{ sub: string; email: string; role: string; tenant_id: string; exp: number }>(storedToken);
                     // Check if token is expired
                     if (decoded.exp * 1000 < Date.now()) {
                         logout();
