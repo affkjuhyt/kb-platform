@@ -267,7 +267,7 @@ services:
       context: ../../services/indexer
       dockerfile: Dockerfile
     container_name: kb-indexer-consumer
-    command: ["python", "consumer.py"]
+    command: ["python", "services/consumer.py"]
     environment:
       RAG_POSTGRES_DSN: postgresql://rag:rag@postgres:5432/rag
       RAG_MINIO_ENDPOINT: minio:9000

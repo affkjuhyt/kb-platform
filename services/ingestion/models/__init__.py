@@ -1,3 +1,3 @@
-from models.document import DocumentRecord
+from document import Document
 
-__all__ = ["DocumentRecord"]
+__all__ = ["Document"]
