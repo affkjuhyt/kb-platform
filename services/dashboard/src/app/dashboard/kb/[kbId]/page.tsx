@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { KnowledgeBase } from "@/types/knowledge-base"
 import { kbApi } from "@/lib/api/knowledge-base"
@@ -30,6 +30,16 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { KBAnalytics } from "@/components/kb-analytics"
+import { formatDate, DATE_FORMATS } from "@/lib/utils/date"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
 
 export default function KBDetailPage() {
     const params = useParams()
@@ -39,6 +49,8 @@ export default function KBDetailPage() {
     const [kb, setKb] = useState<KnowledgeBase | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+    const [isDeletingKB, setIsDeletingKB] = useState(false)
 
     useEffect(() => {
         if (kbId) {
@@ -46,18 +58,33 @@ export default function KBDetailPage() {
         }
     }, [kbId])
 
-    const loadKB = async () => {
+    const loadKB = useCallback(async () => {
         try {
             setIsLoading(true)
             const data = await kbApi.get(kbId)
             setKb(data)
             setError(null)
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err)
             setError("Knowledge base not found or an error occurred.")
             toast.error("Failed to load knowledge base")
         } finally {
             setIsLoading(false)
+        }
+    }, [kbId])
+
+    const handleDelete = async () => {
+        try {
+            setIsDeletingKB(true)
+            await kbApi.delete(kbId)
+            toast.success("Knowledge base deleted successfully")
+            router.push("/dashboard/kb")
+        } catch (err: unknown) {
+            console.error(err)
+            toast.error("Failed to delete knowledge base")
+        } finally {
+            setIsDeletingKB(false)
+            setIsDeleteConfirmOpen(false)
         }
     }
 
@@ -161,7 +188,7 @@ export default function KBDetailPage() {
                                 <div>
                                     <span className="font-semibold">Created At:</span>
                                     <p className="text-muted-foreground">
-                                        {new Date(kb.created_at).toLocaleString()}
+                                        {formatDate(kb.created_at, DATE_FORMATS.WITH_TIME)}
                                     </p>
                                 </div>
                             </div>
@@ -199,9 +226,39 @@ export default function KBDetailPage() {
                                         This will permanently delete the KB and all its indexed data.
                                     </p>
                                 </div>
-                                <Button variant="destructive" onClick={() => toast.error("Delete not implemented in this view yet")}>
-                                    Delete KB
-                                </Button>
+                                <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button variant="destructive">
+                                            Delete KB
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle className="text-destructive">Confirm Deletion</DialogTitle>
+                                            <DialogDescription>
+                                                This action is irreversible. This will permanently delete
+                                                <strong> {kb.name}</strong> and all indexed documents and vector chunks.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <DialogFooter className="gap-2 sm:gap-0">
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => setIsDeleteConfirmOpen(false)}
+                                                disabled={isDeletingKB}
+                                            >
+                                                Cancel
+                                            </Button>
+                                            <Button
+                                                variant="destructive"
+                                                onClick={handleDelete}
+                                                disabled={isDeletingKB}
+                                            >
+                                                {isDeletingKB && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                Confirm Delete
+                                            </Button>
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
                             </div>
                         </CardContent>
                     </Card>

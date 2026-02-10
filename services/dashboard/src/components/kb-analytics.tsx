@@ -13,6 +13,9 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+// TODO: Replace with actual API call to fetch analytics data
+// Example: const { data, isLoading } = useKBAnalytics(kbId)
+// API endpoint should return: { time: string, volume: number, latency: number }[]
 const mockData = [
     { time: '00:00', volume: 12, latency: 120 },
     { time: '04:00', volume: 8, latency: 145 },
@@ -24,8 +27,6 @@ const mockData = [
 ];
 
 export function KBAnalytics({ kbId }: { kbId: string }) {
-    console.log(`Loading analytics for ${kbId}`);
-
     return (
         <div className="grid gap-4 md:grid-cols-2">
             <Card className="col-span-1">

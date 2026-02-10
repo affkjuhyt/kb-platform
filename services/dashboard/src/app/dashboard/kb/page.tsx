@@ -33,6 +33,7 @@ import {
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
+import { formatDate } from "@/lib/utils/date"
 import {
     Dialog,
     DialogContent,
@@ -50,6 +51,9 @@ export default function KnowledgeBasesPage() {
     const [searchQuery, setSearchQuery] = useState("")
     const [isCreateOpen, setIsCreateOpen] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
+    const [kbToDelete, setKbToDelete] = useState<KnowledgeBase | null>(null)
     const router = useRouter()
 
     // Form state
@@ -66,7 +70,7 @@ export default function KnowledgeBasesPage() {
             setIsLoading(true)
             const data = await kbApi.list()
             setKbs(data)
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error)
             toast.error("Failed to load knowledge bases")
         } finally {
@@ -104,16 +108,21 @@ export default function KnowledgeBasesPage() {
         kb.description?.toLowerCase().includes(searchQuery.toLowerCase())
     )
 
-    const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this knowledge base? All indexed data will be lost.")) return
+    const handleDelete = async () => {
+        if (!kbToDelete) return
 
         try {
-            await kbApi.delete(id)
+            setIsDeleting(true)
+            await kbApi.delete(kbToDelete.id)
             toast.success("Knowledge base deleted")
-            setKbs(kbs.filter(kb => kb.id !== id))
+            setKbs(kbs.filter(kb => kb.id !== kbToDelete.id))
+            setIsDeleteOpen(false)
+            setKbToDelete(null)
         } catch (error) {
             console.error(error)
             toast.error("Failed to delete knowledge base")
+        } finally {
+            setIsDeleting(false)
         }
     }
 
@@ -241,7 +250,7 @@ export default function KnowledgeBasesPage() {
                                     </Badge>
                                 </TableCell>
                                 <TableCell>
-                                    {kb.updated_at ? new Date(kb.updated_at).toLocaleDateString() : 'N/A'}
+                                    {formatDate(kb.updated_at)}
                                 </TableCell>
                                 <TableCell onClick={(e) => e.stopPropagation()}>
                                     <DropdownMenu>
@@ -264,7 +273,10 @@ export default function KnowledgeBasesPage() {
                                             <DropdownMenuSeparator />
                                             <DropdownMenuItem
                                                 className="text-destructive focus:text-destructive"
-                                                onClick={() => handleDelete(kb.id)}
+                                                onClick={() => {
+                                                    setKbToDelete(kb)
+                                                    setIsDeleteOpen(true)
+                                                }}
                                             >
                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                 Delete
@@ -284,6 +296,34 @@ export default function KnowledgeBasesPage() {
                     </TableBody>
                 </Table>
             </div>
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-destructive">Confirm Deletion</DialogTitle>
+                        <DialogDescription>
+                            This action is irreversible. This will permanently delete
+                            <strong> {kbToDelete?.name}</strong> and all indexed documents and vector chunks.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsDeleteOpen(false)}
+                            disabled={isDeleting}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                        >
+                            {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Confirm Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

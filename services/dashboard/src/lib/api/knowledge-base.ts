@@ -4,6 +4,11 @@ import { KnowledgeBase, KBCreateRequest } from '@/types/knowledge-base';
 // const BASE_PATH = '/api/kb';
 
 // Mock data for development
+// TODO: Replace mock data with actual API calls before production deployment
+// When implementing real API integration:
+// 1. Uncomment the axios import and BASE_PATH constant
+// 2. Replace Promise-based mock returns with actual axios.get/post/delete calls
+// 3. Remove or conditionally disable MOCK_KBS based on environment variable
 const MOCK_KBS: KnowledgeBase[] = [
     {
         id: 'kb-1',
@@ -52,7 +57,7 @@ export const kbApi = {
 
     create: async (data: KBCreateRequest): Promise<KnowledgeBase> => {
         const newKb: KnowledgeBase = {
-            id: `kb-${Math.random().toString(36).substr(2, 9)}`,
+            id: `kb-${crypto.randomUUID()}`,
             name: data.name,
             description: data.description || null,
             tenant_id: 'default',
