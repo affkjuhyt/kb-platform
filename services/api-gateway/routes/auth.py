@@ -1,9 +1,7 @@
-from datetime import timedelta
-from typing import List
+from datetime import timedelta, datetime
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 import secrets
 
 from database import get_db
@@ -60,19 +58,36 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
         # Should not happen as register creates a tenant
         raise HTTPException(status_code=400, detail="User has no tenants")
 
+    # Find the target tenant user record
+    target_tenant_user = None
     if target_tenant_id == "default" or not target_tenant_id:
-        target_tenant_id = user_tenants[0].tenant_id
+        target_tenant_user = user_tenants[0]
+        target_tenant_id = target_tenant_user.tenant_id
     else:
-        # Verify membership
-        is_member = any(t.tenant_id == target_tenant_id for t in user_tenants)
-        if not is_member:
+        # Verify membership and get the tenant user record
+        target_tenant_user = next(
+            (t for t in user_tenants if t.tenant_id == target_tenant_id), None
+        )
+        if not target_tenant_user:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not a member of this tenant",
             )
 
-    # Get permissions (for now simplified)
-    permissions = ["read", "write"]
+    # Map role to permissions
+    role = target_tenant_user.role
+    permissions = []
+    if role == "owner":
+        permissions = ["read", "write", "delete", "manage_users", "manage_settings"]
+    elif role == "admin":
+        permissions = ["read", "write", "delete", "manage_users"]
+    elif role == "member":
+        permissions = ["read", "write"]
+    elif role == "viewer":
+        permissions = ["read"]
+    else:
+        # Default to read-only for unknown roles
+        permissions = ["read"]
 
     access_token_expires = timedelta(hours=settings.JWT_EXPIRATION_HOURS)
     access_token = create_access_token(
@@ -176,7 +191,9 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Registration failed due to an internal error."
+        )
 
     # Generate Token
     access_token_expires = timedelta(hours=settings.JWT_EXPIRATION_HOURS)
@@ -228,14 +245,6 @@ async def create_api_key(
 
     key_id = str(uuid.uuid4())
     api_key = f"rag_{key_id}_{secrets.token_urlsafe(32)}"
-
-    expires_at = None
-    if key_data.expires_days:
-        # from datetime import datetime
-        pass
-        # Import missing
-
-    from datetime import datetime
 
     expires_at = None
     if key_data.expires_days:

@@ -81,7 +81,7 @@ export function TenantSwitcher({ className }: { className?: string }) {
                             <CommandItem
                                 onSelect={() => {
                                     setOpen(false)
-                                    router.push("/dashboard/tenants/new") // Adjust path as needed
+                                    router.push("/dashboard/tenants")
                                 }}
                             >
                                 <Plus className="mr-2 h-5 w-5" />

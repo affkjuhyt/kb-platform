@@ -8,6 +8,10 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from config import settings
 
+import logging
+
+logger = logging.getLogger("api_gateway")
+
 # Security schemes
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -19,16 +23,6 @@ def verify_password(plain_password, hashed_password):
 
 def get_password_hash(password):
     return pwd_context.hash(password)
-
-
-# ============================================================================
-# Models
-# ============================================================================
-
-
-# ============================================================================
-# Models
-# ============================================================================
 
 
 class UserLogin(BaseModel):
@@ -115,9 +109,6 @@ def verify_token(token: str) -> TokenData:
             exp=datetime.fromtimestamp(payload.get("exp")),
         )
     except JWTError as e:
-        import logging
-
-        logger = logging.getLogger("api_gateway")
         logger.error(f"Token verification failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

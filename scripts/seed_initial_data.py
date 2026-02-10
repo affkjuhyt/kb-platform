@@ -1,9 +1,11 @@
-import sys
 import os
+import sys
 import secrets
+import string
 
-# Add services/api-gateway to path
-sys.path.append(os.path.join(os.getcwd(), "services/api-gateway"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "services", "api-gateway")
+)
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -33,7 +35,19 @@ def seed():
 
         # Create User
         user_id = "admin-user-id"  # Maintain our deterministic ID for now
-        hashed_password = get_password_hash("password")
+        # Get password from environment variable or generate a secure random one
+        admin_password = os.getenv("ADMIN_INITIAL_PASSWORD")
+
+        if not admin_password:
+            # Generate a secure random password
+            alphabet = string.ascii_letters + string.digits + string.punctuation
+            admin_password = "".join(secrets.choice(alphabet) for _ in range(20))
+            print(f"\n{'=' * 60}")
+            print(f"IMPORTANT: Generated admin password (save this securely!):")
+            print(f"  {admin_password}")
+            print(f"{'=' * 60}\n")
+
+        hashed_password = get_password_hash(admin_password)
         user = User(
             id=user_id,
             email=admin_email,

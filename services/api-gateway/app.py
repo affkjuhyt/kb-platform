@@ -23,14 +23,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import httpx
 import redis
-import os
 
 # Helper imports
 from config import settings
 from auth import (
-    Token,
     TokenData,
-    create_access_token,
     verify_token,
     get_current_user,
 )
@@ -463,8 +460,6 @@ app.include_router(auth_router)
 # ============================================================================
 
 if __name__ == "__main__":
-    import os
-    import secrets
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=settings.SERVICE_PORT)
