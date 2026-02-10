@@ -1,6 +1,6 @@
 # Monitoring stack - connects to existing Redis from infrastructure
 # Redis should be running on host at port 6379 (from #infra/docker-compose)
-# 
+#
 # Prerequisites:
 #   Infrastructure must be running first: cd infrastructure && docker-compose up -d
 #
@@ -19,12 +19,12 @@ services:
       - ./prometheus/alerts.yml:/etc/prometheus/rules/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
     networks:
       - monitoring
 
@@ -54,12 +54,12 @@ services:
     image: jaegertracing/all-in-one:1.49
     container_name: jaeger
     ports:
-      - "16686:16686"   # UI
+      - "16686:16686" # UI
       - "6831:6831/udp" # Agent
       - "6832:6832/udp" # Agent
-      - "14268:14268"   # Collector HTTP
-      - "14250:14250"   # Collector gRPC
-      - "9411:9411"     # Zipkin
+      - "14268:14268" # Collector HTTP
+      - "14250:14250" # Collector gRPC
+      - "9411:9411" # Zipkin
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
@@ -95,9 +95,9 @@ services:
       - /sys:/host/sys:ro
       - /:/rootfs:ro
     command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
     networks:
       - monitoring
 
@@ -106,14 +106,14 @@ services:
     image: prom/alertmanager:latest
     container_name: alertmanager
     ports:
-      - "9094:9093"  # Changed from 9093 to 9094 (9093 used by Kafka)
+      - "9094:9093" # Changed from 9093 to 9094 (9093 used by Kafka)
     volumes:
       - ./alertmanager:/etc/alertmanager:ro
       - alertmanager-data:/alertmanager
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-      - '--web.listen-address=:9093'
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.listen-address=:9093"
     networks:
       - monitoring
 

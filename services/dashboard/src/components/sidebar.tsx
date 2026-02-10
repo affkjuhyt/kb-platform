@@ -13,6 +13,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { TenantSwitcher } from "@/components/tenant-switcher"
 
 export function Sidebar() {
     const pathname = usePathname()
@@ -70,6 +71,9 @@ export function Sidebar() {
                         Nexus Platform
                     </h1>
                 </Link>
+                <div className="mb-4 px-3">
+                    <TenantSwitcher />
+                </div>
                 <div className="space-y-1">
                     {routes.map((route) => (
                         <Button
