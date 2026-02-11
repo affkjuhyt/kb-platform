@@ -19,7 +19,8 @@ import {
     Trash2,
     Archive,
     Eye,
-    MoreHorizontal
+    MoreHorizontal,
+    Globe,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -59,6 +60,7 @@ import { formatDate, DATE_FORMATS } from "@/lib/utils/date"
 import { formatFileSize } from "@/lib/utils/format"
 import { DocumentUpload } from "@/components/document-upload"
 import { DocumentPreview } from "@/components/document-preview"
+import { DataSourcesList } from "@/components/data-sources-list"
 import {
     Dialog,
     DialogContent,
@@ -303,6 +305,9 @@ export default function KBDetailPage() {
                     <TabsTrigger value="documents">
                         <FileText className="mr-2 h-4 w-4" /> Documents
                     </TabsTrigger>
+                    <TabsTrigger value="data-sources">
+                        <Globe className="mr-2 h-4 w-4" /> Data Sources
+                    </TabsTrigger>
                     <TabsTrigger value="analytics">
                         <BarChart3 className="mr-2 h-4 w-4" /> Analytics
                     </TabsTrigger>
@@ -515,6 +520,18 @@ export default function KBDetailPage() {
                             </div>
                         </div>
                     )}
+                </TabsContent>
+
+                <TabsContent value="data-sources">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Data Sources</CardTitle>
+                            <CardDescription>Manage automated data ingestion from web crawlers, APIs, and file watchers.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <DataSourcesList kbId={kbId} />
+                        </CardContent>
+                    </Card>
                 </TabsContent>
 
                 <TabsContent value="analytics">
