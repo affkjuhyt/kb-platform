@@ -204,10 +204,11 @@ export const documentApi = {
     /**
      * Rollback to a previous version
      */
-    rollback: async (docId: string, _versionId: string): Promise<Document> => {
+    rollback: async (docId: string, versionId: string): Promise<Document> => {
         // TODO: Replace with actual API call
         // return axios.post(`${BASE_PATH}/${docId}/rollback`, { version_id: versionId }).then(res => res.data);
 
+        console.log(`Rolling back document ${docId} to version ${versionId}`);
         await new Promise(resolve => setTimeout(resolve, 500));
         const doc = MOCK_DOCUMENTS.find(d => d.id === docId);
         if (!doc) throw new Error('Document not found');
@@ -252,5 +253,23 @@ export const documentApi = {
         doc.is_archived = true;
         doc.updated_at = new Date().toISOString();
         return doc;
+    },
+
+    /**
+     * Get document content for preview
+     */
+    getContent: async (docId: string): Promise<string> => {
+        // TODO: Replace with actual API call
+        // return axios.get(`${BASE_PATH}/${docId}/content`).then(res => res.data);
+
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const doc = MOCK_DOCUMENTS.find(d => d.id === docId);
+        if (!doc) throw new Error('Document not found');
+
+        if (doc.content_type === 'application/pdf') {
+            return `# ${doc.name}\n\n[PDF content preview is not available in mock mode. In a real application, this would return the extracted text or a PDF viewer URL.]`;
+        }
+
+        return `# ${doc.name}\n\nThis is a mock preview of the document content. In a production environment, this would show the actual text extracted from the file.\n\n## Section 1\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n\n## Section 2\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.`;
     },
 };

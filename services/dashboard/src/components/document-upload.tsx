@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress"
 import { documentApi } from "@/lib/api/document"
 import { DocumentUploadProgress } from "@/types/document"
 import { toast } from "sonner"
+import { formatFileSize } from "@/lib/utils/format"
 
 interface DocumentUploadProps {
     kbId: string
@@ -94,14 +95,6 @@ export function DocumentUpload({ kbId, open, onOpenChange, onUploadComplete }: D
         }
     }
 
-    const formatFileSize = (bytes: number): string => {
-        if (bytes === 0) return '0 B'
-        const k = 1024
-        const sizes = ['B', 'KB', 'MB', 'GB']
-        const i = Math.floor(Math.log(bytes) / Math.log(k))
-        return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-    }
-
     const getProgressForFile = (file: File) => {
         return uploadProgress.find(p => p.file === file)
     }
@@ -133,8 +126,8 @@ export function DocumentUpload({ kbId, open, onOpenChange, onUploadComplete }: D
                     {/* Drag and Drop Zone */}
                     <div
                         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${isDragging
-                                ? 'border-primary bg-primary/5'
-                                : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                            ? 'border-primary bg-primary/5'
+                            : 'border-muted-foreground/25 hover:border-muted-foreground/50'
                             }`}
                         onDragOver={handleDragOver}
                         onDragLeave={handleDragLeave}
@@ -168,7 +161,7 @@ export function DocumentUpload({ kbId, open, onOpenChange, onUploadComplete }: D
                                 const progress = getProgressForFile(file)
                                 return (
                                     <div
-                                        key={`${file.name}-${index}`}
+                                        key={`${file.name}-${file.size}-${file.lastModified}`}
                                         className="flex items-center gap-3 p-3 border rounded-lg"
                                     >
                                         {progress ? getStatusIcon(progress.status) : <FileText className="h-4 w-4 text-muted-foreground" />}

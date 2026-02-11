@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { KnowledgeBase } from "@/types/knowledge-base"
 import { Document, DocumentStatus } from "@/types/document"
@@ -56,7 +56,9 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { KBAnalytics } from "@/components/kb-analytics"
 import { formatDate, DATE_FORMATS } from "@/lib/utils/date"
+import { formatFileSize } from "@/lib/utils/format"
 import { DocumentUpload } from "@/components/document-upload"
+import { DocumentPreview } from "@/components/document-preview"
 import {
     Dialog,
     DialogContent,
@@ -66,6 +68,8 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Separator } from "@/components/ui/separator"
 
 export default function KBDetailPage() {
     const params = useParams()
@@ -87,12 +91,8 @@ export default function KBDetailPage() {
     const [isDeleteDocOpen, setIsDeleteDocOpen] = useState(false)
     const [isDeletingDoc, setIsDeletingDoc] = useState(false)
     const [isUploadOpen, setIsUploadOpen] = useState(false)
-
-    useEffect(() => {
-        if (kbId) {
-            loadKB()
-        }
-    }, [kbId])
+    const [docForPreview, setDocForPreview] = useState<Document | null>(null)
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false)
 
     const loadKB = useCallback(async () => {
         try {
@@ -108,6 +108,12 @@ export default function KBDetailPage() {
             setIsLoading(false)
         }
     }, [kbId])
+
+    useEffect(() => {
+        if (kbId) {
+            loadKB()
+        }
+    }, [kbId, loadKB])
 
     const handleDelete = async () => {
         try {
@@ -146,7 +152,15 @@ export default function KBDetailPage() {
             setIsDeletingDoc(true)
             await documentApi.delete(docToDelete.id, false) // soft delete
             toast.success("Document deleted")
-            setDocuments(documents.filter(d => d.id !== docToDelete.id))
+            setDocuments(prev => prev.filter(d => d.id !== docToDelete.id))
+
+            // Remove from selection if deleted
+            setSelectedDocs(prev => {
+                const next = new Set(prev)
+                next.delete(docToDelete.id)
+                return next
+            })
+
             setIsDeleteDocOpen(false)
             setDocToDelete(null)
         } catch (err: unknown) {
@@ -154,6 +168,65 @@ export default function KBDetailPage() {
             toast.error("Failed to delete document")
         } finally {
             setIsDeletingDoc(false)
+        }
+    }
+
+    const handleBulkDelete = async () => {
+        if (selectedDocs.size === 0) return
+
+        try {
+            setIsLoadingDocs(true)
+            // In mock mode, we just loop
+            for (const docId of Array.from(selectedDocs)) {
+                await documentApi.delete(docId, false)
+            }
+            toast.success(`Successfully deleted ${selectedDocs.size} documents`)
+            setDocuments(prev => prev.filter(d => !selectedDocs.has(d.id)))
+            setSelectedDocs(new Set())
+        } catch (err) {
+            console.error(err)
+            toast.error("Failed to delete some documents")
+        } finally {
+            setIsLoadingDocs(false)
+        }
+    }
+
+    const handleBulkArchive = async () => {
+        if (selectedDocs.size === 0) return
+
+        try {
+            setIsLoadingDocs(true)
+            for (const docId of Array.from(selectedDocs)) {
+                await documentApi.archive(docId)
+            }
+            toast.success(`Successfully archived ${selectedDocs.size} documents`)
+            setDocuments(prev => prev.filter(d => !selectedDocs.has(d.id)))
+            setSelectedDocs(new Set())
+        } catch (err) {
+            console.error(err)
+            toast.error("Failed to archive some documents")
+        } finally {
+            setIsLoadingDocs(false)
+        }
+    }
+
+    const toggleDocSelection = (docId: string) => {
+        setSelectedDocs(prev => {
+            const next = new Set(prev)
+            if (next.has(docId)) {
+                next.delete(docId)
+            } else {
+                next.add(docId)
+            }
+            return next
+        })
+    }
+
+    const toggleAllDocs = () => {
+        if (selectedDocs.size === filteredDocs.length) {
+            setSelectedDocs(new Set())
+        } else {
+            setSelectedDocs(new Set(filteredDocs.map((d: Document) => d.id)))
         }
     }
 
@@ -169,17 +242,10 @@ export default function KBDetailPage() {
         return <Badge variant={config.variant}>{config.label}</Badge>
     }
 
-    const formatFileSize = (bytes: number): string => {
-        if (bytes === 0) return '0 B'
-        const k = 1024
-        const sizes = ['B', 'KB', 'MB', 'GB']
-        const i = Math.floor(Math.log(bytes) / Math.log(k))
-        return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-    }
-
-    const filteredDocs = documents.filter(doc =>
-        doc.name.toLowerCase().includes(docSearchQuery.toLowerCase())
-    )
+    const filteredDocs = useMemo(() =>
+        documents.filter(doc =>
+            doc.name.toLowerCase().includes(docSearchQuery.toLowerCase())
+        ), [documents, docSearchQuery])
 
     useEffect(() => {
         if (kbId) {
@@ -334,6 +400,13 @@ export default function KBDetailPage() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead className="w-[40px]">
+                                                <Checkbox
+                                                    checked={selectedDocs.size === filteredDocs.length && filteredDocs.length > 0}
+                                                    onCheckedChange={toggleAllDocs}
+                                                    aria-label="Select all"
+                                                />
+                                            </TableHead>
                                             <TableHead>Name</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>Size</TableHead>
@@ -344,8 +417,15 @@ export default function KBDetailPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredDocs.map((doc) => (
+                                        {filteredDocs.map((doc: Document) => (
                                             <TableRow key={doc.id}>
+                                                <TableCell>
+                                                    <Checkbox
+                                                        checked={selectedDocs.has(doc.id)}
+                                                        onCheckedChange={() => toggleDocSelection(doc.id)}
+                                                        aria-label={`Select ${doc.name}`}
+                                                    />
+                                                </TableCell>
                                                 <TableCell>
                                                     <div className="flex items-center space-x-2">
                                                         <FileText className="h-4 w-4 text-muted-foreground" />
@@ -375,7 +455,10 @@ export default function KBDetailPage() {
                                                         </DropdownMenuTrigger>
                                                         <DropdownMenuContent align="end">
                                                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                                            <DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => {
+                                                                setDocForPreview(doc)
+                                                                setIsPreviewOpen(true)
+                                                            }}>
                                                                 <Eye className="mr-2 h-4 w-4" />
                                                                 Preview
                                                             </DropdownMenuItem>
@@ -404,6 +487,34 @@ export default function KBDetailPage() {
                             )}
                         </CardContent>
                     </Card>
+
+                    {/* Bulk Action Toolbar */}
+                    {selectedDocs.size > 0 && (
+                        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-popover border shadow-lg rounded-full px-6 py-3 flex items-center gap-6 animate-in slide-in-from-bottom-4 z-50">
+                            <span className="text-sm font-medium">
+                                {selectedDocs.size} item{selectedDocs.size !== 1 ? 's' : ''} selected
+                            </span>
+                            <Separator orientation="vertical" className="h-4" />
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleBulkArchive}
+                                    className="h-8"
+                                >
+                                    <Archive className="h-4 w-4 mr-2" /> Archive
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleBulkDelete}
+                                    className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                >
+                                    <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                </Button>
+                            </div>
+                        </div>
+                    )}
                 </TabsContent>
 
                 <TabsContent value="analytics">
@@ -502,6 +613,13 @@ export default function KBDetailPage() {
                 open={isUploadOpen}
                 onOpenChange={setIsUploadOpen}
                 onUploadComplete={loadDocuments}
+            />
+
+            {/* Document Preview Dialog */}
+            <DocumentPreview
+                document={docForPreview}
+                open={isPreviewOpen}
+                onOpenChange={setIsPreviewOpen}
             />
         </div>
     )
