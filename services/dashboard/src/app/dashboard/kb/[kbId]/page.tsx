@@ -532,46 +532,6 @@ export default function KBDetailPage() {
                             <DataSourcesList kbId={kbId} />
                         </CardContent>
                     </Card>
-
-                    {/* Bulk Action Toolbar */}
-                    {selectedDocs.size > 0 && (
-                        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-popover border shadow-lg rounded-full px-6 py-3 flex items-center gap-6 animate-in slide-in-from-bottom-4 z-50">
-                            <span className="text-sm font-medium">
-                                {selectedDocs.size} item{selectedDocs.size !== 1 ? 's' : ''} selected
-                            </span>
-                            <Separator orientation="vertical" className="h-4" />
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={handleBulkArchive}
-                                    className="h-8"
-                                >
-                                    <Archive className="h-4 w-4 mr-2" /> Archive
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={handleBulkDelete}
-                                    className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                >
-                                    <Trash2 className="h-4 w-4 mr-2" /> Delete
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </TabsContent>
-
-                <TabsContent value="data-sources">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Data Sources</CardTitle>
-                            <CardDescription>Manage automated data ingestion from web crawlers, APIs, and file watchers.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <DataSourcesList kbId={kbId} />
-                        </CardContent>
-                    </Card>
                 </TabsContent>
 
                 <TabsContent value="analytics">

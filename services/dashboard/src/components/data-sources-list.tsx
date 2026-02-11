@@ -26,9 +26,19 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import { Globe, Link2, FolderSync, MoreVertical, Play, Pause, RefreshCw, Trash2, Loader2 } from "lucide-react"
+import { Globe, Link2, FolderSync, MoreVertical, Play, Pause, RefreshCw, Trash2, Loader2, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 import { formatDistanceToNow } from "date-fns"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface DataSourcesListProps {
     kbId: string
@@ -38,6 +48,8 @@ export function DataSourcesList({ kbId }: DataSourcesListProps) {
     const [dataSources, setDataSources] = useState<DataSource[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [filter, setFilter] = useState<DataSourceType | 'all'>('all')
+    const [sourceToDelete, setSourceToDelete] = useState<string | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
 
     useEffect(() => {
         loadDataSources()
@@ -59,9 +71,9 @@ export function DataSourcesList({ kbId }: DataSourcesListProps) {
 
     const handlePause = async (sourceId: string) => {
         try {
-            await dataSourceApi.pause(sourceId)
+            const updatedSource = await dataSourceApi.pause(sourceId)
+            setDataSources(prev => prev.map(ds => ds.id === sourceId ? updatedSource : ds))
             toast.success("Data source paused")
-            loadDataSources()
         } catch (error) {
             console.error(error)
             toast.error("Failed to pause data source")
@@ -70,9 +82,9 @@ export function DataSourcesList({ kbId }: DataSourcesListProps) {
 
     const handleResume = async (sourceId: string) => {
         try {
-            await dataSourceApi.resume(sourceId)
+            const updatedSource = await dataSourceApi.resume(sourceId)
+            setDataSources(prev => prev.map(ds => ds.id === sourceId ? updatedSource : ds))
             toast.success("Data source resumed")
-            loadDataSources()
         } catch (error) {
             console.error(error)
             toast.error("Failed to resume data source")
@@ -81,25 +93,33 @@ export function DataSourcesList({ kbId }: DataSourcesListProps) {
 
     const handleTriggerSync = async (sourceId: string) => {
         try {
-            await dataSourceApi.triggerSync(sourceId)
+            const updatedSource = await dataSourceApi.triggerSync(sourceId)
+            setDataSources(prev => prev.map(ds => ds.id === sourceId ? updatedSource : ds))
             toast.success("Sync triggered")
-            loadDataSources()
         } catch (error) {
             console.error(error)
             toast.error("Failed to trigger sync")
         }
     }
 
-    const handleDelete = async (sourceId: string) => {
-        if (!confirm("Are you sure you want to delete this data source?")) return
+    const handleDelete = (sourceId: string) => {
+        setSourceToDelete(sourceId)
+    }
+
+    const confirmDelete = async () => {
+        if (!sourceToDelete) return
 
         try {
-            await dataSourceApi.delete(sourceId)
+            setIsDeleting(true)
+            await dataSourceApi.delete(sourceToDelete)
+            setDataSources(prev => prev.filter(ds => ds.id !== sourceToDelete))
             toast.success("Data source deleted")
-            loadDataSources()
         } catch (error) {
             console.error(error)
             toast.error("Failed to delete data source")
+        } finally {
+            setIsDeleting(false)
+            setSourceToDelete(null)
         }
     }
 
@@ -244,6 +264,34 @@ export function DataSourcesList({ kbId }: DataSourcesListProps) {
                     </Table>
                 </div>
             )}
+
+            <AlertDialog open={!!sourceToDelete} onOpenChange={(open) => !open && setSourceToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-destructive" />
+                            Delete Data Source
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this data source? This action cannot be undone and will stop all automated ingestion from this source.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e: React.MouseEvent) => {
+                                e.preventDefault()
+                                confirmDelete()
+                            }}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }
