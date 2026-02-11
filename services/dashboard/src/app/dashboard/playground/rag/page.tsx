@@ -7,34 +7,29 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { playgroundApi } from "@/lib/api/playground"
-import { Citation } from "@/types/playground"
+import { getTenantId } from "@/lib/api/client"
+import { RAGCitation } from "@/types/playground"
 import { toast } from "sonner"
 
 export default function RAGPlaygroundPage() {
     const [query, setQuery] = useState("")
-    const [kbId, setKbId] = useState("kb-1")
-    const [model, setModel] = useState("gpt-4")
-    const [temperature, setTemperature] = useState(0.7)
+    const [tenantId, setTenantId] = useState(getTenantId() || "default")
+    const [temperature, setTemperature] = useState(0.3)
     const [topK, setTopK] = useState(5)
     const [systemPrompt, setSystemPrompt] = useState(
         "You are a helpful assistant. Answer the question based on the provided context. Be concise and accurate."
     )
     const [answer, setAnswer] = useState("")
-    const [citations, setCitations] = useState<Citation[]>([])
+    const [citations, setCitations] = useState<RAGCitation[]>([])
     const [isQuerying, setIsQuerying] = useState(false)
     const [responseTime, setResponseTime] = useState<number | null>(null)
-    const [tokensUsed, setTokensUsed] = useState<number | null>(null)
+    const [confidence, setConfidence] = useState<number | null>(null)
+    const [modelUsed, setModelUsed] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
 
     const handleQuery = async () => {
@@ -48,19 +43,19 @@ export default function RAGPlaygroundPage() {
             setAnswer("")
             setCitations([])
 
+            const startTime = Date.now()
             const response = await playgroundApi.rag({
                 query,
-                kb_id: kbId,
-                model,
+                tenant_id: tenantId,
                 temperature,
                 top_k: topK,
-                system_prompt: systemPrompt,
             })
 
             setAnswer(response.answer)
             setCitations(response.citations)
-            setResponseTime(response.response_time_ms)
-            setTokensUsed(response.tokens_used)
+            setResponseTime(Date.now() - startTime)
+            setConfidence(response.confidence)
+            setModelUsed(response.model || null)
             toast.success("Answer generated")
         } catch (error) {
             console.error(error)
@@ -98,33 +93,16 @@ export default function RAGPlaygroundPage() {
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="kb-rag">Knowledge Base</Label>
-                                    <Select value={kbId} onValueChange={setKbId}>
-                                        <SelectTrigger id="kb-rag">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="kb-1">Product Documentation</SelectItem>
-                                            <SelectItem value="kb-2">Technical Guides</SelectItem>
-                                            <SelectItem value="kb-3">Customer Support</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                    <Label htmlFor="tenant-rag">Tenant ID</Label>
+                                    <Input
+                                        id="tenant-rag"
+                                        value={tenantId}
+                                        onChange={(e) => setTenantId(e.target.value)}
+                                        placeholder="Enter tenant ID"
+                                    />
                                 </div>
 
-                                <div className="space-y-2">
-                                    <Label htmlFor="model">Model</Label>
-                                    <Select value={model} onValueChange={setModel}>
-                                        <SelectTrigger id="model">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="gpt-4">GPT-4</SelectItem>
-                                            <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
-                                            <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-                                            <SelectItem value="claude-3-sonnet">Claude 3 Sonnet</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+
 
                                 <div className="space-y-2">
                                     <Label htmlFor="temp">Temperature: {temperature.toFixed(2)}</Label>
@@ -200,7 +178,7 @@ export default function RAGPlaygroundPage() {
                                         <div>
                                             <CardTitle>Answer</CardTitle>
                                             <CardDescription>
-                                                {responseTime}ms • {tokensUsed} tokens • {model}
+                                                {responseTime}ms • Confidence: {confidence !== null ? `${(confidence * 100).toFixed(0)}%` : 'N/A'}{modelUsed ? ` • ${modelUsed}` : ''}
                                             </CardDescription>
                                         </div>
                                         <Button variant="outline" size="sm" onClick={handleCopy}>
@@ -233,23 +211,23 @@ export default function RAGPlaygroundPage() {
                                 <CardContent>
                                     <ScrollArea className="h-[400px] pr-4">
                                         <div className="space-y-4">
-                                            {citations.map((citation) => (
+                                            {citations.map((citation, idx) => (
                                                 <div
-                                                    key={citation.index}
+                                                    key={`${citation.doc_id}-${idx}`}
                                                     className="border rounded-lg p-4 space-y-2"
                                                 >
                                                     <div className="flex items-center gap-2">
-                                                        <Badge variant="outline">[{citation.index}]</Badge>
+                                                        <Badge variant="outline">[{idx + 1}]</Badge>
                                                         <FileText className="h-4 w-4 text-muted-foreground" />
                                                         <span className="text-sm font-medium">
-                                                            {citation.document_name}
+                                                            {citation.source_id}
                                                         </span>
                                                         <Badge variant="secondary" className="ml-auto">
-                                                            {citation.score.toFixed(3)}
+                                                            {citation.source}
                                                         </Badge>
                                                     </div>
                                                     <p className="text-sm text-muted-foreground leading-relaxed">
-                                                        {citation.chunk_content}
+                                                        {citation.section_path}
                                                     </p>
                                                 </div>
                                             ))}

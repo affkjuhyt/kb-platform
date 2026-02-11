@@ -2,31 +2,23 @@
 
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
-import { Search as SearchIcon, Loader2, Download, Settings2 } from "lucide-react"
+import { Search as SearchIcon, Loader2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { playgroundApi } from "@/lib/api/playground"
+import { getTenantId } from "@/lib/api/client"
 import { SearchResult } from "@/types/playground"
 import { toast } from "sonner"
-import { formatDistanceToNow } from "date-fns"
 
 export default function SearchPlaygroundPage() {
     const searchParams = useSearchParams()
     const [query, setQuery] = useState("")
-    const [kbId, setKbId] = useState("kb-1")
+    const [tenantId, setTenantId] = useState(getTenantId() || "default")
     const [topK, setTopK] = useState(10)
-    const [threshold, setThreshold] = useState(0.7)
     const [results, setResults] = useState<SearchResult[]>([])
     const [isSearching, setIsSearching] = useState(false)
     const [queryTime, setQueryTime] = useState<number | null>(null)
@@ -49,15 +41,15 @@ export default function SearchPlaygroundPage() {
 
         try {
             setIsSearching(true)
+            const startTime = Date.now()
             const response = await playgroundApi.search({
                 query: q,
-                kb_id: kbId,
+                tenant_id: tenantId,
                 top_k: topK,
-                similarity_threshold: threshold,
             })
             setResults(response.results)
-            setQueryTime(response.query_time_ms)
-            toast.success(`Found ${response.total} results`)
+            setQueryTime(Date.now() - startTime)
+            toast.success(`Found ${response.results.length} results`)
         } catch (error) {
             console.error(error)
             toast.error("Search failed")
@@ -122,17 +114,13 @@ export default function SearchPlaygroundPage() {
                         {/* Filters */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="kb">Knowledge Base</Label>
-                                <Select value={kbId} onValueChange={setKbId}>
-                                    <SelectTrigger id="kb">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="kb-1">Product Documentation</SelectItem>
-                                        <SelectItem value="kb-2">Technical Guides</SelectItem>
-                                        <SelectItem value="kb-3">Customer Support</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <Label htmlFor="tenant">Tenant ID</Label>
+                                <Input
+                                    id="tenant"
+                                    value={tenantId}
+                                    onChange={(e) => setTenantId(e.target.value)}
+                                    placeholder="Enter tenant ID"
+                                />
                             </div>
 
                             <div className="space-y-2">
@@ -147,17 +135,7 @@ export default function SearchPlaygroundPage() {
                                 />
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="threshold">Similarity Threshold: {threshold.toFixed(2)}</Label>
-                                <Slider
-                                    id="threshold"
-                                    min={0}
-                                    max={1}
-                                    step={0.05}
-                                    value={[threshold]}
-                                    onValueChange={([value]) => setThreshold(value)}
-                                />
-                            </div>
+
                         </div>
                     </CardContent>
                 </Card>
@@ -183,7 +161,7 @@ export default function SearchPlaygroundPage() {
                             <div className="space-y-4">
                                 {results.map((result, idx) => (
                                     <div
-                                        key={result.id}
+                                        key={`${result.doc_id}-${result.chunk_index}`}
                                         className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
                                     >
                                         <div className="flex items-start justify-between gap-4">
@@ -191,21 +169,17 @@ export default function SearchPlaygroundPage() {
                                                 <div className="flex items-center gap-2">
                                                     <Badge variant="outline">#{idx + 1}</Badge>
                                                     <span className="text-sm font-medium">
-                                                        {result.metadata.document_name}
+                                                        {result.source_id}
                                                     </span>
                                                     <Badge variant="secondary">
                                                         Score: {result.score.toFixed(3)}
                                                     </Badge>
                                                 </div>
-                                                <p className="text-sm leading-relaxed">{result.content}</p>
+                                                <p className="text-sm leading-relaxed">{result.text}</p>
                                                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                                    <span>Chunk {result.metadata.chunk_index}</span>
-                                                    <span>Source: {result.metadata.source}</span>
-                                                    <span>
-                                                        {formatDistanceToNow(new Date(result.metadata.created_at), {
-                                                            addSuffix: true,
-                                                        })}
-                                                    </span>
+                                                    <span>Chunk {result.chunk_index}</span>
+                                                    <span>Source: {result.source}</span>
+                                                    <span>Section: {result.section_path}</span>
                                                 </div>
                                             </div>
                                         </div>

@@ -8,16 +8,11 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { playgroundApi } from "@/lib/api/playground"
+import { getTenantId } from "@/lib/api/client"
 import { ComparisonResult } from "@/types/playground"
 import { toast } from "sonner"
 
@@ -30,7 +25,7 @@ const AVAILABLE_MODELS = [
 
 export default function ComparePlaygroundPage() {
     const [query, setQuery] = useState("")
-    const [kbId, setKbId] = useState("kb-1")
+    const [tenantId, setTenantId] = useState(getTenantId() || "default")
     const [selectedModels, setSelectedModels] = useState<string[]>(["gpt-4", "claude-3-sonnet"])
     const [results, setResults] = useState<ComparisonResult[]>([])
     const [isComparing, setIsComparing] = useState(false)
@@ -53,7 +48,7 @@ export default function ComparePlaygroundPage() {
 
             const response = await playgroundApi.compare({
                 query,
-                kb_id: kbId,
+                tenant_id: tenantId,
                 models: selectedModels,
             })
 
@@ -96,17 +91,13 @@ export default function ComparePlaygroundPage() {
                     <CardContent className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="kb-compare">Knowledge Base</Label>
-                                <Select value={kbId} onValueChange={setKbId}>
-                                    <SelectTrigger id="kb-compare">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="kb-1">Product Documentation</SelectItem>
-                                        <SelectItem value="kb-2">Technical Guides</SelectItem>
-                                        <SelectItem value="kb-3">Customer Support</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <Label htmlFor="tenant-compare">Tenant ID</Label>
+                                <Input
+                                    id="tenant-compare"
+                                    value={tenantId}
+                                    onChange={(e) => setTenantId(e.target.value)}
+                                    placeholder="Enter tenant ID"
+                                />
                             </div>
 
                             <div className="space-y-2">
@@ -168,7 +159,7 @@ export default function ComparePlaygroundPage() {
                                         <div className="flex items-center justify-between">
                                             <CardTitle className="text-lg">{result.model}</CardTitle>
                                             <div className="flex gap-2">
-                                                <Badge variant="secondary">{result.tokens_used} tokens</Badge>
+                                                <Badge variant="secondary">Confidence: {(result.confidence * 100).toFixed(0)}%</Badge>
                                                 <Badge variant="outline">{result.response_time_ms}ms</Badge>
                                             </div>
                                         </div>
@@ -192,21 +183,21 @@ export default function ComparePlaygroundPage() {
                                                 Citations ({result.citations.length})
                                             </h4>
                                             <div className="space-y-2">
-                                                {result.citations.slice(0, 3).map((citation) => (
+                                                {result.citations.slice(0, 3).map((citation, cidx) => (
                                                     <div
-                                                        key={citation.index}
+                                                        key={`${citation.doc_id}-${cidx}`}
                                                         className="text-xs border rounded p-2"
                                                     >
                                                         <div className="flex items-center gap-2 mb-1">
                                                             <Badge variant="outline" className="text-xs">
-                                                                [{citation.index}]
+                                                                [{cidx + 1}]
                                                             </Badge>
                                                             <span className="font-medium truncate">
-                                                                {citation.document_name}
+                                                                {citation.source_id}
                                                             </span>
                                                         </div>
                                                         <p className="text-muted-foreground line-clamp-2">
-                                                            {citation.chunk_content}
+                                                            {citation.section_path}
                                                         </p>
                                                     </div>
                                                 ))}

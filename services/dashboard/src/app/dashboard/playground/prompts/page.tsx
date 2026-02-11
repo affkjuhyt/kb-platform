@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { FileEdit, Save, Loader2, Plus, Trash2 } from "lucide-react"
+import { Save, Loader2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -30,7 +30,7 @@ export default function PromptsPlaygroundPage() {
 
     const [promptName, setPromptName] = useState("")
     const [promptContent, setPromptContent] = useState("")
-    const [selectedKb, setSelectedKb] = useState<string | undefined>(undefined)
+    const [selectedTenant, setSelectedTenant] = useState<string | undefined>(undefined)
     const [selectedCategory, setSelectedCategory] = useState<string>("all")
 
     useEffect(() => {
@@ -65,7 +65,7 @@ export default function PromptsPlaygroundPage() {
             const saved = await playgroundApi.savePrompt({
                 name: promptName,
                 content: promptContent,
-                kb_id: selectedKb,
+                tenant_id: selectedTenant,
             })
             setSavedPrompts([saved, ...savedPrompts])
             setPromptName("")
@@ -87,7 +87,7 @@ export default function PromptsPlaygroundPage() {
     const handleLoadSaved = (saved: SavedPrompt) => {
         setPromptName(saved.name)
         setPromptContent(saved.content)
-        setSelectedKb(saved.kb_id)
+        setSelectedTenant(saved.tenant_id)
         toast.success(`Loaded prompt: ${saved.name}`)
     }
 
@@ -223,18 +223,13 @@ export default function PromptsPlaygroundPage() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="kb-select">Knowledge Base (Optional)</Label>
-                                        <Select value={selectedKb} onValueChange={setSelectedKb}>
-                                            <SelectTrigger id="kb-select">
-                                                <SelectValue placeholder="None" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="none">None</SelectItem>
-                                                <SelectItem value="kb-1">Product Documentation</SelectItem>
-                                                <SelectItem value="kb-2">Technical Guides</SelectItem>
-                                                <SelectItem value="kb-3">Customer Support</SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                        <Label htmlFor="tenant-select">Tenant ID (Optional)</Label>
+                                        <Input
+                                            id="tenant-select"
+                                            value={selectedTenant || ""}
+                                            onChange={(e) => setSelectedTenant(e.target.value || undefined)}
+                                            placeholder="Enter tenant ID"
+                                        />
                                     </div>
                                 </div>
 
@@ -269,7 +264,7 @@ export default function PromptsPlaygroundPage() {
                                         onClick={() => {
                                             setPromptName("")
                                             setPromptContent("")
-                                            setSelectedKb(undefined)
+                                            setSelectedTenant(undefined)
                                         }}
                                     >
                                         <Plus className="h-4 w-4 mr-2" />

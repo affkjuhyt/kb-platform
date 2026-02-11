@@ -199,7 +199,7 @@ export default function KBDetailPage() {
         try {
             setIsLoadingDocs(true)
             for (const docId of Array.from(selectedDocs)) {
-                await documentApi.archive(docId)
+                await documentApi.delete(docId)
             }
             toast.success(`Successfully archived ${selectedDocs.size} documents`)
             setDocuments(prev => prev.filter(d => !selectedDocs.has(d.id)))

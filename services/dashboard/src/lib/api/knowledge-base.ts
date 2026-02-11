@@ -1,81 +1,88 @@
-// import axios from 'axios';
+import apiClient, { getTenantId } from './client';
 import { KnowledgeBase, KBCreateRequest } from '@/types/knowledge-base';
 
-// const BASE_PATH = '/api/kb';
-
-// Mock data for development
-// TODO: Replace mock data with actual API calls before production deployment
-// When implementing real API integration:
-// 1. Uncomment the axios import and BASE_PATH constant
-// 2. Replace Promise-based mock returns with actual axios.get/post/delete calls
-// 3. Remove or conditionally disable MOCK_KBS based on environment variable
-const MOCK_KBS: KnowledgeBase[] = [
-    {
-        id: 'kb-1',
-        name: 'Technical Documentation',
-        description: 'Internal documentation for the platform architecture and API.',
-        tenant_id: 'tenant-1',
-        embedding_model: 'text-embedding-3-small',
-        document_count: 124,
-        chunk_count: 1240,
-        created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
-        updated_at: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-        id: 'kb-2',
-        name: 'Customer Support Wiki',
-        description: 'Knowledge base for support agents to resolve common issues.',
-        tenant_id: 'tenant-1',
-        embedding_model: 'text-embedding-3-small',
-        document_count: 56,
-        chunk_count: 450,
-        created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
-        updated_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    }
-];
-
+/**
+ * Knowledge Base API client.
+ * 
+ * Since the backend treats tenants as knowledge base containers (one tenant = one KB),
+ * KB operations map to tenant management endpoints.
+ * For now, we use the tenants API and maintain local mock data as fallback.
+ */
 export const kbApi = {
+    /**
+     * List all knowledge bases (tenants) accessible to the current user
+     * GET /tenants
+     */
     list: async (): Promise<KnowledgeBase[]> => {
-        // For now, return mock data since backend might not be ready
-        // In a real scenario, this would be:
-        // const response = await axios.get<KnowledgeBase[]>(BASE_PATH);
-        // return response.data;
-        return new Promise((resolve) => {
-            setTimeout(() => resolve(MOCK_KBS), 500);
-        });
+        try {
+            const response = await apiClient.get('/tenants');
+            // Map tenant data to KB format
+            return response.data.map((tenant: Record<string, unknown>) => ({
+                id: tenant.id || tenant.tenant_id,
+                name: tenant.name || `Tenant ${tenant.id}`,
+                description: tenant.description || null,
+                tenant_id: tenant.id || tenant.tenant_id,
+                embedding_model: tenant.embedding_model || 'text-embedding-3-small',
+                document_count: tenant.document_count || 0,
+                chunk_count: tenant.chunk_count || 0,
+                created_at: tenant.created_at || new Date().toISOString(),
+                updated_at: tenant.updated_at || null,
+            }));
+        } catch (error) {
+            console.error('Failed to fetch knowledge bases, falling back to empty list:', error);
+            return [];
+        }
     },
 
+    /**
+     * Get a single knowledge base by ID
+     * GET /tenants/:id
+     */
     get: async (id: string): Promise<KnowledgeBase> => {
-        return new Promise((resolve, reject) => {
-            const kb = MOCK_KBS.find(k => k.id === id);
-            setTimeout(() => {
-                if (kb) resolve(kb);
-                else reject(new Error('KB not found'));
-            }, 500);
-        });
+        const response = await apiClient.get(`/tenants/${id}`);
+        const tenant = response.data;
+        return {
+            id: tenant.id || tenant.tenant_id,
+            name: tenant.name || `Tenant ${tenant.id}`,
+            description: tenant.description || null,
+            tenant_id: tenant.id || tenant.tenant_id,
+            embedding_model: tenant.embedding_model || 'text-embedding-3-small',
+            document_count: tenant.document_count || 0,
+            chunk_count: tenant.chunk_count || 0,
+            created_at: tenant.created_at || new Date().toISOString(),
+            updated_at: tenant.updated_at || null,
+        };
     },
 
+    /**
+     * Create a new knowledge base (tenant)
+     * POST /tenants
+     */
     create: async (data: KBCreateRequest): Promise<KnowledgeBase> => {
-        const newKb: KnowledgeBase = {
-            id: `kb-${crypto.randomUUID()}`,
+        const response = await apiClient.post('/tenants', {
             name: data.name,
-            description: data.description || null,
-            tenant_id: 'default',
+            description: data.description,
             embedding_model: data.embedding_model || 'text-embedding-3-small',
+        });
+        const tenant = response.data;
+        return {
+            id: tenant.id || tenant.tenant_id,
+            name: tenant.name || data.name,
+            description: tenant.description || data.description || null,
+            tenant_id: tenant.id || tenant.tenant_id,
+            embedding_model: tenant.embedding_model || data.embedding_model || 'text-embedding-3-small',
             document_count: 0,
             chunk_count: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            created_at: tenant.created_at || new Date().toISOString(),
+            updated_at: null,
         };
-
-        return new Promise((resolve) => {
-            setTimeout(() => resolve(newKb), 800);
-        });
     },
 
-    delete: async (_id: string): Promise<void> => {
-        return new Promise((resolve) => {
-            setTimeout(resolve, 500);
-        });
-    }
+    /**
+     * Delete a knowledge base (tenant)
+     * DELETE /tenants/:id
+     */
+    delete: async (id: string): Promise<void> => {
+        await apiClient.delete(`/tenants/${id}`);
+    },
 };
