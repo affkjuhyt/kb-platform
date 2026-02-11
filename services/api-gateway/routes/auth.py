@@ -78,7 +78,14 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     role = target_tenant_user.role
     permissions = []
     if role == "owner":
-        permissions = ["read", "write", "delete", "manage_users", "manage_settings"]
+        permissions = [
+            "admin",
+            "read",
+            "write",
+            "delete",
+            "manage_users",
+            "manage_settings",
+        ]
     elif role == "admin":
         permissions = ["read", "write", "delete", "manage_users"]
     elif role == "member":
@@ -189,7 +196,7 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     try:
         db.commit()
 
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise HTTPException(
             status_code=500, detail="Registration failed due to an internal error."

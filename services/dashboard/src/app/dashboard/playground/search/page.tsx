@@ -14,8 +14,12 @@ import { getTenantId } from "@/lib/api/client"
 import { SearchResult } from "@/types/playground"
 import { toast } from "sonner"
 
-export default function SearchPlaygroundPage() {
+import { Suspense } from "react"
+// ... imports
+
+function SearchPlaygroundContent() {
     const searchParams = useSearchParams()
+    // ... logic ...
     const [query, setQuery] = useState("")
     const [tenantId, setTenantId] = useState(getTenantId() || "default")
     const [topK, setTopK] = useState(10)
@@ -206,5 +210,13 @@ export default function SearchPlaygroundPage() {
                 )}
             </div>
         </div>
+    )
+}
+
+export default function SearchPlaygroundPage() {
+    return (
+        <Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>}>
+            <SearchPlaygroundContent />
+        </Suspense>
     )
 }

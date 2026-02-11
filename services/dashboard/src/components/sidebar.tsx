@@ -8,15 +8,18 @@ import {
     Settings,
     Database,
     Search,
-    Users
+    Users,
+    LogOut
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { TenantSwitcher } from "@/components/tenant-switcher"
+import { useAuth } from "@/context/auth-context"
 
 export function Sidebar() {
     const pathname = usePathname()
+    const { logout } = useAuth()
 
     const routes = [
         {
@@ -92,6 +95,17 @@ export function Sidebar() {
                         </Button>
                     ))}
                 </div>
+            </div>
+
+            <div className="mt-auto px-4 py-4 border-t border-secondary-foreground/10">
+                <Button
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => logout()}
+                >
+                    <LogOut className="h-5 w-5 mr-3" />
+                    Log Out
+                </Button>
             </div>
         </div>
     )
