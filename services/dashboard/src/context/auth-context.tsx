@@ -1,10 +1,11 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import Cookies from 'js-cookie';
 import { jwtDecode } from 'jwt-decode';
 import { useRouter, usePathname } from 'next/navigation';
 import axios from 'axios';
+import { toast } from 'sonner';
 import { User } from '@/types/auth';
 
 interface AuthContextType {
@@ -27,24 +28,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const login = (newToken: string) => {
         Cookies.set('token', newToken, { expires: 1 }); // 1 day
         setToken(newToken);
-        const decoded = jwtDecode<{ sub: string; email: string; role: string; tenant_id: string; exp: number }>(newToken);
-        setUser({
-            id: decoded.sub,
-            email: decoded.email,
-            role: decoded.role,
-            tenant_id: decoded.tenant_id,
-        });
-        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-        router.push('/dashboard');
+        try {
+            const decoded = jwtDecode<{ sub: string; email: string; role: string; tenant_id: string; exp: number }>(newToken);
+            setUser({
+                id: decoded.sub,
+                email: decoded.email,
+                role: decoded.role,
+                tenant_id: decoded.tenant_id,
+            });
+            axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+
+            // Also set in API client helper
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('access_token', newToken);
+                localStorage.setItem('tenant_id', decoded.tenant_id);
+            }
+
+            router.push('/dashboard');
+            toast.success("Welcome back!");
+        } catch (error) {
+            console.error("Invalid token during login:", error);
+            toast.error("Failed to process login token");
+        }
     };
 
-    const logout = () => {
+    const logout = useCallback(() => {
+        // Clear all auth storage
         Cookies.remove('token');
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('tenant_id');
+            // Clear other preferences if needed, but keeping them is usually better UX
+        }
+
         setToken(null);
         setUser(null);
         delete axios.defaults.headers.common['Authorization'];
+
         router.push('/login');
-    };
+        toast.success("Logged out successfully");
+    }, [router]);
 
     useEffect(() => {
         const initAuth = () => {
@@ -75,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         initAuth();
-    }, []);
+    }, [logout]);
 
     // Protect routes
     useEffect(() => {

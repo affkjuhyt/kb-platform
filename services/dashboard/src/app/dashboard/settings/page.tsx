@@ -16,9 +16,12 @@ import {
     Bell,
     Globe,
     Loader2,
+    Activity
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { AuditLogsTable } from "@/components/audit-logs-table"
+import axios from "axios"
 import { Label } from "@/components/ui/label"
 import {
     Card,
@@ -172,12 +175,21 @@ export default function SettingsPage() {
     }
 
     // Regenerate API key
-    const handleRegenerateKey = () => {
-        const newKey = generateAPIKey()
-        localStorage.setItem("apiKey", newKey)
-        setApiKey(newKey)
-        setShowRegenerateDialog(false)
-        toast.success("API key regenerated successfully")
+    const handleRegenerateKey = async () => {
+        try {
+            const response = await axios.post("/auth/api-keys", {
+                name: "Dashboard Key",
+                permissions: ["read", "write"]
+            })
+            const newKey = response.data.api_key
+            localStorage.setItem("apiKey", newKey)
+            setApiKey(newKey)
+            setShowRegenerateDialog(false)
+            toast.success("API key regenerated successfully")
+        } catch (error) {
+            console.error("Failed to regenerate API key:", error)
+            toast.error("Failed to regenerate API key")
+        }
     }
 
     // Copy API key to clipboard
@@ -190,6 +202,7 @@ export default function SettingsPage() {
 
     // Mask API key for display
     const maskAPIKey = (key: string) => {
+        if (!key) return ""
         if (key.length < 12) return key
         return key.substring(0, 8) + "•".repeat(20) + key.substring(key.length - 4)
     }
@@ -208,7 +221,7 @@ export default function SettingsPage() {
             </div>
 
             <Tabs defaultValue="profile" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-4 lg:grid-cols-5">
                     <TabsTrigger value="profile">
                         <User className="h-4 w-4 mr-2" />
                         Profile
@@ -224,6 +237,10 @@ export default function SettingsPage() {
                     <TabsTrigger value="system">
                         <Info className="h-4 w-4 mr-2" />
                         System
+                    </TabsTrigger>
+                    <TabsTrigger value="audit">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Audit Logs
                     </TabsTrigger>
                 </TabsList>
 
@@ -598,6 +615,11 @@ export default function SettingsPage() {
                             )}
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                {/* Audit Logs Tab */}
+                <TabsContent value="audit">
+                    <AuditLogsTable />
                 </TabsContent>
             </Tabs>
 

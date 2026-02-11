@@ -8,6 +8,7 @@ import {
     GitCompare,
     ArrowRight,
     Sparkles,
+    Braces
 } from "lucide-react"
 import {
     Card,
@@ -50,6 +51,14 @@ const playgroundTools = [
         icon: GitCompare,
         color: "text-orange-500",
         bgColor: "bg-orange-500/10",
+    },
+    {
+        name: "Data Extraction",
+        description: "Extract structured data from unstructured text using JSON schemas.",
+        href: "/dashboard/playground/extraction",
+        icon: Braces,
+        color: "text-pink-500",
+        bgColor: "bg-pink-500/10",
     },
 ]
 

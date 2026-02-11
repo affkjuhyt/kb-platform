@@ -81,11 +81,11 @@ export function TenantSwitcher({ className }: { className?: string }) {
                             <CommandItem
                                 onSelect={() => {
                                     setOpen(false)
-                                    router.push("/dashboard/tenants")
+                                    router.push("/dashboard/tenants/create")
                                 }}
                             >
                                 <Plus className="mr-2 h-5 w-5" />
-                                Create Tenant
+                                Create Workspace
                             </CommandItem>
                         </CommandGroup>
                     </CommandList>
