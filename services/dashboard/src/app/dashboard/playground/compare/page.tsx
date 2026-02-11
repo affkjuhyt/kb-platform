@@ -154,7 +154,7 @@ export default function ComparePlaygroundPage() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {results.map((result, idx) => (
-                                <Card key={idx}>
+                                <Card key={result.model}>
                                     <CardHeader>
                                         <div className="flex items-center justify-between">
                                             <CardTitle className="text-lg">{result.model}</CardTitle>

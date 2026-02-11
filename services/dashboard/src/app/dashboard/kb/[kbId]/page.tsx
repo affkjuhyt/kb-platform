@@ -152,7 +152,7 @@ export default function KBDetailPage() {
 
         try {
             setIsDeletingDoc(true)
-            await documentApi.delete(docToDelete.id, false) // soft delete
+            await documentApi.delete(docToDelete.id)
             toast.success("Document deleted")
             setDocuments(prev => prev.filter(d => d.id !== docToDelete.id))
 
@@ -180,7 +180,7 @@ export default function KBDetailPage() {
             setIsLoadingDocs(true)
             // In mock mode, we just loop
             for (const docId of Array.from(selectedDocs)) {
-                await documentApi.delete(docId, false)
+                await documentApi.delete(docId)
             }
             toast.success(`Successfully deleted ${selectedDocs.size} documents`)
             setDocuments(prev => prev.filter(d => !selectedDocs.has(d.id)))

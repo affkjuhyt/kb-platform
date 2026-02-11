@@ -1,4 +1,4 @@
-import apiClient, { getTenantId } from './client';
+import apiClient from './client';
 import { KnowledgeBase, KBCreateRequest } from '@/types/knowledge-base';
 
 /**

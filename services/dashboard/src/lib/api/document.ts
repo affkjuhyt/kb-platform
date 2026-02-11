@@ -166,7 +166,7 @@ export const documentApi = {
     /**
      * Delete a document
      */
-    delete: async (docId: string, _hard: boolean = false): Promise<void> => {
+    delete: async (docId: string): Promise<void> => {
         const tenantId = getTenantId() || 'default';
         await apiClient.delete(`/query/documents/${docId}`, {
             params: { tenant_id: tenantId },

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { Search as SearchIcon, Loader2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -23,16 +23,7 @@ export default function SearchPlaygroundPage() {
     const [isSearching, setIsSearching] = useState(false)
     const [queryTime, setQueryTime] = useState<number | null>(null)
 
-    useEffect(() => {
-        const q = searchParams.get('q')
-        if (q) {
-            setQuery(q)
-            handleSearch(q)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
-
-    const handleSearch = async (searchQuery?: string) => {
+    const runSearch = useCallback(async (searchQuery?: string) => {
         const q = searchQuery || query
         if (!q.trim()) {
             toast.error("Please enter a search query")
@@ -56,6 +47,18 @@ export default function SearchPlaygroundPage() {
         } finally {
             setIsSearching(false)
         }
+    }, [query, tenantId, topK])
+
+    useEffect(() => {
+        const q = searchParams.get('q')
+        if (q) {
+            setQuery(q)
+            runSearch(q)
+        }
+    }, [runSearch, searchParams])
+
+    const handleSearch = () => {
+        runSearch()
     }
 
     const handleExport = () => {

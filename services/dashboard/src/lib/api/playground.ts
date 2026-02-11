@@ -185,7 +185,7 @@ export const playgroundApi = {
                         confidence: ragResponse.data.confidence,
                         response_time_ms: Date.now() - modelStart,
                     };
-                } catch (_error) {
+                } catch {
                     return {
                         model,
                         answer: `Error: Failed to get response from ${model}`,
